@@ -1,0 +1,40 @@
+#安定化電源 松定プレシジョン PR100設定
+NAME "PR100_1"
+
+#デバイスアドレスを初期値の1と仮定
+INIT START
+INIT "#1 REN"	#リモートコントロール可能
+INIT "#1 SW0"	#出力停止
+INIT "#1 CH0 32"	#電圧50V(16bit)
+INIT "#1 CH1 5"		#電流5A
+INIT "#1 ICN 100"	#出力電流パーセント
+INIT "#1 OVP 100"	#過電圧保護パーセント
+INIT "#1 VCN 100"	#出力電圧パーセント
+INIT END
+
+CMD NAME "OUT_ON"
+CMD "#1 SW1"
+CMD END
+
+CMD NAME "OUT_OFF"
+CMD "#1 SW0"
+CMD END
+
+CMD NAME "SET_50V10A"
+CMD "#1 SW0"
+CMD "#1 CH0 32"
+CMD "#1 CH1 10"
+CMD "#1 SW1"
+CMD END
+
+CMD NAME "GET_V"
+CMD "#1 MN1"
+CMD END
+
+CMD NAME "GET_I"
+CMD "#1 MN2"
+CMD END
+
+CMD NAME "GET_STATUS"
+CMD "#1 STS"
+CMD END

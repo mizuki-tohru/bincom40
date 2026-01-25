@@ -1,0 +1,89 @@
+#--------------------------------------------------------------------------
+#
+# 
+#--------------------------------------------------------------------------
+#プログラムタイトル
+PROGRAM_TITLE "BICOM40 TEST"
+
+#Loop間隔
+Interval 1000
+
+#データ保存
+DATAFOLDER DATA
+
+#ログファイル保存
+LOGFOLDER LOG
+#---------------------------------------------------------------------------
+#ポート番号
+#port 18
+#port 1
+port 3
+#port 17
+#port 31
+#port USB
+
+#USBシリアル デバイス識別情報
+USB_VID "0x0403"
+USB_PID "0x6015"
+#USB_SERIAL "DK0G0GKM"
+#USB_SERIAL "DJ00LW3V"
+#USB_SERIAL "DP04T2LJ"
+#USB_SERIAL "DP04T7UD"
+USB_SERIAL "DK0FK37P"
+
+#ボーレート
+#baud 1000000
+#baud 921600
+#baud 38400
+#baud 57600
+#baud 19200	#PCDU3rd
+baud 115200
+#パリティ
+parity no #ノンパリ
+#parity odd #奇数パリティ
+#parity even #偶数パリティ
+#parity space #空白
+#paritey mark #設定可能
+
+#ストップビット長
+stopbits one #1ビット
+#stopbits two #2ビット
+
+#制御ラインサポート
+#modem on
+modem off
+
+#改行挿入
+newline none
+#newline CRLF
+#newline CR
+#newline LF
+
+#ポートオプション
+#Openport_mode startonce #通常
+Openport_mode check #定期的にポートが開いたかチェックしにゆく
+
+#表示方式
+#Display Text
+Display hex
+#Display lua
+
+#固定パラメータ表示行数
+FIXParam_Display 0
+#FIXParam_Display 3
+#FIXParam_Display 12
+#---------------------------------------------------------------------------
+#計測器定義ファイル
+MEASURE_DEVICE "device_config.txt"
+#---------------------------------------------------------------------------
+#スクリプト
+SCRIPT "script.lua"
+
+#コマンドリスト
+CMD "command.txt"
+
+#テレメトリ定義
+TLM "tlm.txt"
+
+#レジスタ定義
+REG "reg.txt"

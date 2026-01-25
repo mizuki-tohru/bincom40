@@ -1,0 +1,178 @@
+//#include <winres.h>
+//#include <windows.h>
+//#include <commctrl.h>
+#include "resource.h"
+//#include "bincom40.h"
+
+#define APSTUDIO_READONLY_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE 2 リソースから生成されました。
+//
+#ifndef APSTUDIO_INVOKED
+#include "targetver.h"
+#endif
+#define APSTUDIO_HIDDEN_SYMBOLS
+#include "windows.h"
+//#include "prsht.h"
+//#include "wtypes.h"
+#undef APSTUDIO_HIDDEN_SYMBOLS
+/////////////////////////////////////////////////////////////////////////////
+#undef APSTUDIO_READONLY_SYMBOLS
+
+#if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_JPN)
+LANGUAGE 17, 1
+//#pragma code_page(932)
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// アイコン
+//
+
+// アプリケーションのアイコンをすべてのシステム上で維持するために、最も小さい
+// ID 値のアイコンが最初に配置されます。
+
+IDI_BINCOM40       ICON         "bincom.ico"
+IDI_SMALL               ICON         "bincom.ico"
+/////////////////////////////////////////////////////////////////////////////
+//
+// メニュー
+//
+
+IDC_BINCOM40 MENU
+BEGIN
+    POPUP "ファイル(&F)"
+    BEGIN
+        MENUITEM "アプリケーションの終了(&X)",                IDM_EXIT
+    END
+    POPUP "ヘルプ(&H)"
+    BEGIN
+        MENUITEM "バージョン情報(&A)...",           IDM_ABOUT
+    END
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// アクセラレータ
+//
+
+IDC_BINCOM40 ACCELERATORS
+BEGIN
+    "?",            IDM_ABOUT,              ASCII,  ALT
+    "/",            IDM_ABOUT,              ASCII,  ALT
+END
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// ダイアログ
+//
+
+IDD_ABOUTBOX DIALOGEX 0, 0, 170, 62
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "バージョン情報 bincom40"
+FONT 9, "MS UI Gothic"
+BEGIN
+    ICON            IDR_MAINFRAME,IDC_STATIC,14,14,21,20
+    LTEXT           "bincom40, Version 1.0",IDC_STATIC,42,14,114,8,SS_NOPREFIX
+    LTEXT           "Copyright (C) 2008",IDC_STATIC,42,26,114,8
+    DEFPUSHBUTTON   "OK",IDOK,113,41,50,14,WS_GROUP
+END
+
+DIALOG1 DIALOG DISCARDABLE 0,0,120,63	//ダイアログサイズ
+STYLE DS_MODALFRAME|WS_POPUP|WS_VISIBLE|WS_CAPTION|WS_SYSMENU //タイプ
+CAPTION "BaudRate"						//ダイアログキャプション
+FONT 10, "system"						//文字属性
+BEGIN
+//	タイプ,コントロールID,横座標,縦座標,幅,高さ
+	DEFPUSHBUTTON "OK",	ID_OK,	50,14,50,10
+	EDITTEXT			ID_TA,	50,2,50,10
+	LTEXT		"Baud",		-1,	10,2,40,10
+END
+
+DIALOG2 DIALOG DISCARDABLE 0,0,160,30	//ダイアログサイズ
+STYLE DS_MODALFRAME|WS_POPUP|WS_VISIBLE|WS_CAPTION|WS_SYSMENU //タイプ
+CAPTION "Reg"						//ダイアログキャプション
+FONT 10, "system"						//文字属性
+BEGIN
+//	タイプ,コントロールID,横座標,縦座標,幅,高さ
+	DEFPUSHBUTTON "WRITE", ID_WRITE,	100,2,40,10
+//	DEFPUSHBUTTON "READ", ID_READ,	100,16,40,10
+	EDITTEXT			ID_TB,	40,2,50,10
+	EDITTEXT			ID_TC,	40,16,50,10
+	LTEXT		"Addr",		-1,	10,2,20,10
+	LTEXT		"Data",		-1,	10,16,20,10
+END
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// DESIGNINFO
+//
+
+#ifdef APSTUDIO_INVOKED
+GUIDELINES DESIGNINFO
+BEGIN
+    IDD_ABOUTBOX, DIALOG
+    BEGIN
+        LEFTMARGIN, 7
+        RIGHTMARGIN, 163
+        TOPMARGIN, 7
+        BOTTOMMARGIN, 55
+    END
+END
+#endif    // APSTUDIO_INVOKED
+
+#ifdef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE
+//
+1 TEXTINCLUDE
+BEGIN
+    "resource.h\0"
+END
+
+2 TEXTINCLUDE
+BEGIN
+	"#ifndef APSTUDIO_INVOKED\r\n"
+    "#include ""targetver.h""\r\n"
+    "#endif\r\n"
+    "#define APSTUDIO_HIDDEN_SYMBOLS\r\n"
+    "#include ""windows.h""\r\n"
+    "#undef APSTUDIO_HIDDEN_SYMBOLS\r\n"
+    "\0"
+END
+
+3 TEXTINCLUDE
+BEGIN
+    "\r\n"
+    "\0"
+END
+
+#endif    // APSTUDIO_INVOKED
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// ストリング テーブル
+//
+
+STRINGTABLE
+BEGIN
+   IDC_BINCOM40   "BINCOM40"
+   IDS_APP_TITLE       "bincom40"
+END
+
+#endif
+/////////////////////////////////////////////////////////////////////////////
+
+
+
+#ifndef APSTUDIO_INVOKED
+/////////////////////////////////////////////////////////////////////////////
+//
+// TEXTINCLUDE 3 リソースから生成されました。
+//
+
+/////////////////////////////////////////////////////////////////////////////
+#endif    // APSTUDIO_INVOKED でない場合
