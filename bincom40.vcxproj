@@ -141,7 +141,7 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <FunctionLevelLinking>true</FunctionLevelLinking>
-      <AdditionalIncludeDirectories>D:\Boost\include\boost-1_73;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\tools\boost_1_87_0\include\boost-1_87;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -150,8 +150,8 @@
       <TargetMachine>MachineX86</TargetMachine>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <AdditionalLibraryDirectories>D:\Boost\lib\x86</AdditionalLibraryDirectories>
-      <AdditionalDependencies>D:\user\mizuki\program\bincom\bincom40\lua\LibLua\Debug\LibLua.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>C:\tools\boost_1_87_0\lib</AdditionalLibraryDirectories>
+      <AdditionalDependencies>E:\user\mizuki\program\BINCOM\bincom40\lua\LibLua\Debug\LibLua.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -167,16 +167,16 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <FunctionLevelLinking>true</FunctionLevelLinking>
-      <AdditionalIncludeDirectories>D:\Boost\include\boost-1_73;D:\user\mizuki\program\bincom\bincom40\lua;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\tools\boost_1_87_0\include\boost-1_87;E:\user\mizuki\program\BINCOM\bincom40\lua;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
-      <AdditionalLibraryDirectories>D:\Boost\lib\x64;D:\user\mizuki\program\bincom\bincom40v\lua\LibLua\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\tools\boost_1_87_0\lib;E:\user\mizuki\program\BINCOM\bincom40\lua\LibLua\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreSpecificDefaultLibraries>msvcrt.lib,libcmtd.lib,msvcrtd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <AdditionalDependencies>D:\user\mizuki\program\bincom\bincom40v\lua\LibLua\x64\Debug\LibLua.lib;D:\user\mizuki\program\bincom\bincom40v\libusb-1.0.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>E:\user\mizuki\program\BINCOM\bincom40\lua\LibLua\x64\Debug\LibLua.lib;E:\user\mizuki\program\BINCOM\bincom40\libusb-1.0.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -220,16 +220,16 @@
       <WarningLevel>Level3</WarningLevel>
       <DebugInformationFormat>OldStyle</DebugInformationFormat>
       <MinimalRebuild>false</MinimalRebuild>
-      <AdditionalIncludeDirectories>D:\Boost\include\boost-1_73;D:\user\mizuki\program\bincom\bincom40\lua;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>E:\user\mizuki\program\BINCOM\bincom40\lua;C:\tools\boost_1_87_0\include\boost-1_87;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>
       <EnableCOMDATFolding>false</EnableCOMDATFolding>
-      <AdditionalLibraryDirectories>D:\Boost\lib\x64;D:\user\mizuki\program\bincom\bincom40\lua\LibLua\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\tools\boost_1_87_0\lib;E:\user\mizuki\program\BINCOM\bincom40\lua\LibLua\x64\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <IgnoreSpecificDefaultLibraries>msvcrt.lib,libcmtd.lib,msvcrtd.lib;%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <AdditionalDependencies>D:\user\mizuki\program\bincom\bincom40\lua\LibLua\x64\Debug\LibLua.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>E:\user\mizuki\program\BINCOM\bincom40\lua\LibLua\x64\Debug\LibLua.lib;E:\user\mizuki\program\BINCOM\bincom40\libusb-1.0.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <Manifest>
       <OutputManifestFile>$(IntDir)$(TargetName)$(TargetExt).embed.manifest</OutputManifestFile>
@@ -330,6 +330,7 @@
     <ClCompile Include="lua\luac.c" />
     <ClCompile Include="lua\lundump.c" />
     <ClCompile Include="lua\lutf8lib.c" />
+    <ClCompile Include="lua\lvm.c" />
     <ClCompile Include="lua\lzio.c" />
     <ClCompile Include="parser.cpp" />
     <ClCompile Include="stdafx.cpp">
@@ -359,6 +360,7 @@
     <ClInclude Include="lua\lfunc.h" />
     <ClInclude Include="lua\lgc.h" />
     <ClInclude Include="lua\ljumptab.h" />
+    <ClInclude Include="lua\llex.h" />
     <ClInclude Include="lua\llimits.h" />
     <ClInclude Include="lua\lmem.h" />
     <ClInclude Include="lua\lobject.h" />
@@ -390,6 +392,9 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="lua\Makefile" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

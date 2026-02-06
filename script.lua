@@ -220,7 +220,8 @@ function Startup()
 	RegWrite(0,0x0100,TlmTbl[42])
 	RegWrite(0,0x0110,TlmTbl[44])
 --	BAT_V_GOAL = BAT_V
-	SerialInit(0,"X",19200)
+--	SerialInit(0,"X",19200)
+	SerialInit(0,10,19200)
 	DispStrP("Init OK")
 end
 
@@ -861,7 +862,20 @@ function Loop()
 		UVC_Cnt = UVC_Cnt + 1
 		if(UVC_Cnt > TlmTbl[34])then
 			if((TlmTbl[26] & 0x02) == 0x02)then --UVC flg
-				TlmTbl[25] = (TlmTbl[25] & 0xfd) | 0x02 --UVC flg
+				TlmTbl[25] = (TlmTbl[25] & 0xfd) | 0x02 --UVC flg set
+				--20260204
+				TlmTbl[55] = TlmTbl[55] & 0xFE --XPA Clear
+				TlmTbl[55] = TlmTbl[55] & 0xFB --S-ELU Clear
+				TlmTbl[55] = TlmTbl[55] & 0xF7 --PPU3 Clear
+				TlmTbl[56] = TlmTbl[56] & 0xFD --PPU4 Clear
+				TlmTbl[58] = TlmTbl[58] & 0xFB --PPU1 Clear
+				TlmTbl[58] = TlmTbl[58] & 0xF7 --PPU2 Clear
+				TlmTbl[61] = TlmTbl[61] & 0xFD --PPU5 Clear
+				TlmTbl[61] = TlmTbl[61] & 0xFB --PPU6 Clear
+				TlmTbl[57] = TlmTbl[57] & 0x7F --MDR Clear
+				TlmTbl[55] = TlmTbl[55] & 0xFD --XTX Clear
+				TlmTbl[59] = TlmTbl[59] & 0xF7 --OBP Clear
+				TlmTbl[59] = TlmTbl[59] & 0xFB --IDRS Clear
 			end
 		end
 	else
@@ -888,10 +902,53 @@ function Loop()
 		XUVC_Cnt = XUVC_Cnt + 1
 		if(XUVC_Cnt > TlmTbl[35])then
 			if((TlmTbl[26] & 0x04) == 0x04)then --XUVC flg
-				TlmTbl[25] = (TlmTbl[25] & 0xfb) | 0x04 --XUVC flg
+				TlmTbl[25] = (TlmTbl[25] & 0xfb) | 0x04 --XUVC flg set
 				TlmTbl[24] = TlmTbl[24] & 0xfe --BAT HTR DIS
 				TlmTbl[55] = TlmTbl[55] & 0x7f --HTR4 Clear
 				TlmTbl[56] = TlmTbl[56] & 0xfe --HTR5 Clear
+				--20260204
+				TlmTbl[55] = 0x00
+				--XPA	55-0
+				--XTX	55-1
+				--S-ELU	55-2
+				--PPU3	55-3
+				--HTR1	55-4
+				--HTR2	55-5
+				--HTR3	55-6
+				--HTR4	55-7
+				TlmTbl[56] = TlmTbl[56] & 0x60
+				--HTR5	56-0
+				--PPU4	56-1
+				--HTR6	56-2
+				--HTR7	56-3
+				--HTR8	56-4
+				--STT1	56-7
+				TlmTbl[57] = TlmTbl[57] & 0x40
+				--STT2	57-0
+				--RW1	57-1
+				--RW2	57-2
+				--RW3	57-3
+				--RW4	57-4
+				--MTQ-X	57-5
+				--MDR	57-7
+				TlmTbl[58] = TlmTbl[58] & 0x03
+				--PPU1	58-2
+				--PPU2	58-3
+				--FOG	58-4
+				--GYRO	58-5
+				--MAGS1	58-6
+				--MAGS2	58-7
+				TlmTbl[59] = TlmTbl[59] & 0xE0
+				--GPSR1	59-0
+				--GPSR2	59-1
+				--IDRS	59-2
+				--OBP	59-3
+				--STT3	59-4
+				TlmTbl[61] = TlmTbl[61] & 0xE1
+				--PPU5	61-1
+				--PPU6	61-2
+				--MTQ-Y	61-3
+				--MTQ-Z	61-4
 			end
 		end
 	else
@@ -1288,7 +1345,8 @@ function Loop()
 	DispParamlP(9,"SA_I_R",RegRead(0,0x0030))
 	DispParamlP(10,"BAT_V",RegRead(0,0x0040))
 --	DispParamlP(11,"BAT_I",RegRead(0,0x0050))
-	DispParamlP(11,"BUSON",RegRead(0,0x0080))
+--	DispParamlP(11,"BUSON",RegRead(0,0x0080))
+	DispParamlP(11,"HOGE",RegRead(0,0x0090))
 	TlmTbl[4] = TlmTbl[4] +1
 	TlmTbl[6] = TlmTbl[6] +1
 	TlmTbl[36] = TlmTbl[36] +1
@@ -1328,6 +1386,27 @@ function Loop()
 				STRXCnt = STRXCnt + 1
 			end
 		end
+	end
+
+	if(RegRead(0,0x0090) ~= 0)then
+		TlmTbl[62] = RegRead(0,0x0090)
+		TlmTbl[63] = 0x02
+		TlmTbl[64] = 0x03
+		TlmTbl[65] = 0x04
+		TlmTbl[66] = 0x05
+		TlmTbl[67] = 0x06
+		TlmTbl[68] = 0x07
+--		RegWrite(0,0x0090,0)
+	end
+
+	--20260224
+	if(RegRead(0,0x0091) ~= 0)then
+		if(RegRead(0,0x0091) == 1)then
+			TlmTbl[60] = 0xFF
+		else
+			TlmTbl[60] = 0x00
+		end
+		RegWrite(0,0x0091,0)
 	end
 
 	if(TlmTbl[36] > (100*60))then

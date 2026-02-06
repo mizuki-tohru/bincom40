@@ -16,6 +16,7 @@ int DispStrP(lua_State * );
 int DispParamlP(lua_State * );
 int DispParamfP(lua_State * );
 int SerialInit(lua_State * );
+int SerialClose(lua_State * );
 int SerialSend(lua_State * );
 int SerialWaitRecv(lua_State * );
 int SerialRecv(lua_State * );

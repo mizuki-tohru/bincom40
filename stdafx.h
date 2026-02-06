@@ -40,6 +40,7 @@
 #include <synchapi.h>
 #include <string>
 #include <map>
+#include <mutex>
 #include <strsafe.h>
 #include <wbemcli.h>
 #include <comutil.h>
@@ -47,15 +48,17 @@
 #include <ntddser.h>
 #include <initguid.h>
 #include <concrtrm.h>
-#include <iostream>
+//#include <iostream>
 #include <devguid.h>  // GUID_DEVINTERFACE_COMPORT
 #include <cfgmgr32.h>
 #include <crtdbg.h>
 #include <Ws2def.h>
 #include <winsock.h>
-#include <tchar.h>
-#include <setupapi.h>
+//#include <tchar.h>
+//#include <setupapi.h>
 #include <wingdi.h>
+#include <cstdio>
+#include <cwchar> // mbstowcs_s
 
 #include "winusb.h" //WinDDK\BuildNumber\inc\ddk
 #include "winusbio.h" //WinDDK\BuildNumber\inc\ddk
@@ -76,6 +79,19 @@
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
+enum maker_t {
+    MAKER_DUMMY = 0,
+    MAKER_YOKOKAWA,
+    MAKER_KIKUSUI,
+    MAKER_HP,
+    MAKER_KEYSIGHT,
+    MAKER_KEISOKU,
+    MAKER_FTDI,
+    MAKER_OWON,
+    MAKER_MATSUSADA,
+    MAKER_TAKASAGO,
+    MAKER_ALIENTEK
+};
 /*--------------------------------------------------------------------------*/
 using namespace std;
 
@@ -110,24 +126,32 @@ struct measurement_cmd{
 
 /*----計測器設定構造体----*/
 struct measurement_device{
-	char * name = {0};
-	char * setting_file_name ={0};
-	int maker = 0;
+//	char * name = {0};
+	std::string name;
+//	char * setting_file_name ={0};
+	std::string setting_file_name;
+//	int maker = 0;
+    maker_t maker = MAKER_DUMMY;
 	int interface_type = 1;
 	int delimiter = 0;
 	int init = 0;
-	char * serial_port = {0};
-	int serial_port_num;
+//	char * serial_port = {0};
+	std::string serial_port;
+	int serial_port_num = 0;
 	int serial_baud = 0;
-	char * VISA_Addr = {0};
-	int lan_addr[4] = {0};
-	int lan_port;
-	int gpib_port;
-	int usb_vid;
-	int usb_pid;
+//	char * VISA_Addr = {0};
+	std::string VISA_Addr;
+//	int lan_addr[4] = {0};
+//  long lan_addr[4] = {0,0,0,0};
+    int lan_addr[4] = {0,0,0,0};
+	int lan_port = 0;
+	int gpib_port = 0;
+	int usb_vid = 0;
+	int usb_pid = 0;
 	int ser_ch = 0;
 //	char * usb_ser={0};
-	TCHAR * usb_ser = {0};
+//	TCHAR * usb_ser = {0};
+	std::wstring usb_ser;
 	vector<measurement_cmd> MCMD;
 };
 
@@ -179,10 +203,12 @@ struct reg_struct{
 /*レジスタ構造体*/
 
 struct reg_main{
-	char * name;
-	long start;
-	int isize;
-	long * DATA;
+//	char * name;
+    std::string name;
+	long start = 0;
+	int isize = 0;
+//	long * DATA;
+    std::vector<long> DATA;
 //	vector<reg_data> REG;
 };
 
@@ -245,7 +271,7 @@ public:
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 		addr.sin_port		 = htons((u_short)port);
 		memset(addr.sin_zero,(int)0,sizeof(addr.sin_zero));
-		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == SOCKET_ERROR){
+		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == (int)SOCKET_ERROR){
 			perror("bind");
 			exit(1);
 		}
@@ -277,7 +303,7 @@ public:
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 		addr.sin_port		 = htons((u_short)port);
 		memset(addr.sin_zero,(int)0,sizeof(addr.sin_zero));
-		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == SOCKET_ERROR){
+		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == (int)SOCKET_ERROR){
 			perror("bind");
 			exit(1);
 		}
@@ -377,6 +403,42 @@ class ulabel{
 	}
 };
 
+// RAII wrapper for libusb device handles + UHDEV container
+class UsbhidDev {
+public:
+    libusb_device_handle* handle = nullptr;
+    unsigned char EPIN = 0;
+    unsigned char EPOUT = 0;
+    int MDEV_num = -1;
+
+    UsbhidDev() noexcept = default;
+    explicit UsbhidDev(libusb_device_handle* h, unsigned char epin = 0, unsigned char epout = 0, int m = -1) noexcept
+        : handle(h), EPIN(epin), EPOUT(epout), MDEV_num(m) {}
+
+    ~UsbhidDev() noexcept {
+        if (handle) {
+            // best-effort: release interface then close
+            libusb_release_interface(handle, 0);
+            libusb_close(handle);
+            handle = nullptr;
+        }
+    }
+
+    // move-only semantics
+    UsbhidDev(UsbhidDev&& o) noexcept
+        : handle(o.handle), EPIN(o.EPIN), EPOUT(o.EPOUT), MDEV_num(o.MDEV_num) { o.handle = nullptr; }
+    UsbhidDev& operator=(UsbhidDev&& o) noexcept {
+        if (this != &o) {
+            if (handle) { libusb_release_interface(handle, 0); libusb_close(handle); }
+            handle = o.handle; EPIN = o.EPIN; EPOUT = o.EPOUT; MDEV_num = o.MDEV_num;
+            o.handle = nullptr;
+        }
+        return *this;
+    }
+    UsbhidDev(const UsbhidDev&) = delete;
+    UsbhidDev& operator=(const UsbhidDev&) = delete;
+};
+
 extern int BUSON_flg;
 //extern char frm[30][66];		//画面表示キャラクタバッファ
 //extern char frmm[100*200];		//画面表示キャラクタバッファ
@@ -392,10 +454,12 @@ extern unsigned long sedpoint; //表示末尾位置
 extern unsigned char GetBufin[6][COMMBUFSIZE*2];
 extern HANDLE hCom[5];			//ファイル(シリアルポート)のハンドル
 extern vector<measurement_device> MDEV;/*計測器定義*/
-extern vector<usb_serial_param> USBSER;
-//extern vector<keysight_ivi_device> VISESS;
+//extern vector<usb_serial_param> USBSER;
+extern vector<keysight_ivi_device> VISESS;
 extern vector<tlm_struct> TLM;
-extern vector<usbhid_dev> UHDEV;
+//extern vector<usbhid_dev> UHDEV;
+extern std::mutex UHDEV_mtx;
+extern std::vector<UsbhidDev> UHDEV;
 extern vector<Socket> NET;
 extern unsigned long long TLMDATA[TLMDATA_NUM];
 extern HANDLE hThread[10];  /*静的変数にする */

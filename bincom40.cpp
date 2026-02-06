@@ -8,6 +8,7 @@
 #include "lua\lua.hpp"
 #include "lua\lprefix.h"
 #include <boost/lexical_cast.hpp>
+#include <atomic>
 //#include <winioctl.h>
 
 //#pragma comment(lib,"LibLua.lib")
@@ -37,10 +38,83 @@
 #define READENDNAME "ReadEnd"
 #define OPENMODE_ONCE 0
 #define OPENMODE_CHECK 1
+
+#define BUSON_CMD 1
 /*--------------------------------------------------------------------------*/
 using namespace std;
 /*--------------------------------------------------------------------------*/
 using boost::lexical_cast;
+
+// 追加: ハンドル有効判定と安全クローズ
+static inline bool IsHandleValid(HANDLE h) {
+    return (h != NULL && h != INVALID_HANDLE_VALUE);
+}
+static inline void SafeCloseHandle(HANDLE &h) {
+    if (IsHandleValid(h)) {
+        CloseHandle(h);
+        h = NULL;
+    }
+}
+static void LogOverlappedError(const char *where, DWORD err)
+{
+    LPWSTR msgBuf = NULL;
+    FormatMessageW(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        err,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPWSTR)&msgBuf,
+        0,
+        NULL);
+    if (msgBuf) {
+        wchar_t out[1024];
+        // where は narrow-string なので %S で変換
+        swprintf_s(out, _countof(out), L"[Overlapped] %S: 0x%08X - %s\n", where, err, msgBuf);
+        OutputDebugStringW(out);
+        LocalFree(msgBuf);
+    } else {
+        wchar_t out[128];
+        swprintf_s(out, _countof(out), L"[Overlapped] %S: 0x%08X\n", where, err);
+        OutputDebugStringW(out);
+    }
+}
+#if 0
+// RAII wrapper for libusb device handles + UHDEV container
+class UsbhidDev {
+public:
+    libusb_device_handle* handle = nullptr;
+    unsigned char EPIN = 0;
+    unsigned char EPOUT = 0;
+    int MDEV_num = -1;
+
+    UsbhidDev() noexcept = default;
+    explicit UsbhidDev(libusb_device_handle* h, unsigned char epin = 0, unsigned char epout = 0, int m = -1) noexcept
+        : handle(h), EPIN(epin), EPOUT(epout), MDEV_num(m) {}
+
+    ~UsbhidDev() noexcept {
+        if (handle) {
+            // best-effort: release interface then close
+            libusb_release_interface(handle, 0);
+            libusb_close(handle);
+            handle = nullptr;
+        }
+    }
+
+    // move-only semantics
+    UsbhidDev(UsbhidDev&& o) noexcept
+        : handle(o.handle), EPIN(o.EPIN), EPOUT(o.EPOUT), MDEV_num(o.MDEV_num) { o.handle = nullptr; }
+    UsbhidDev& operator=(UsbhidDev&& o) noexcept {
+        if (this != &o) {
+            if (handle) { libusb_release_interface(handle, 0); libusb_close(handle); }
+            handle = o.handle; EPIN = o.EPIN; EPOUT = o.EPOUT; MDEV_num = o.MDEV_num;
+            o.handle = nullptr;
+        }
+        return *this;
+    }
+    UsbhidDev(const UsbhidDev&) = delete;
+    UsbhidDev& operator=(const UsbhidDev&) = delete;
+};
+#endif
 
 // グローバル変数:
 HINSTANCE	hInst;							// 現在のインターフェイス
@@ -50,6 +124,7 @@ HMENU		hMenu;
 HMENU		hSubMenu0;
 HMENU		hSubMenu1;
 HMENU		hSubMenu2;
+HMENU		hSubMenu3;
 //HANDLE		hEventObject;
 //HANDLE		hEventObjectW;
 //OVERLAPPED	COMOverlapped = {0};
@@ -68,6 +143,8 @@ COMMTIMEOUTS cmto;			//Comm Timeout略語化
 //HANDLE	hCom;			//ファイル(シリアルポート)のハンドル
 HANDLE		hCom[5];			//ファイル(シリアルポート)のハンドル
 HANDLE hThread[10];  /*静的変数にする */
+std::atomic<bool> gThreadRun[10]; // 追加：各スレッドの実行フラグ（true=実行, false=終了要求）
+
 DWORD		dweError;		
 LOGFONT		lplf;			//論理フォント構造体
 HFONT		hNewFont;		//フォントハンドル
@@ -178,7 +255,13 @@ BOOL fSuccess;		//シリアルポート設定エラーフラグ
 vector<measurement_device> MDEV;/*計測器定義*/
 vector<usb_serial_param> USBSER;
 //vector<keysight_ivi_device> VISESS;
-vector<usbhid_dev> UHDEV;
+//vector<usbhid_dev> UHDEV;
+// UHDEV コンテナと保護用ミューテックス
+//static std::mutex UHDEV_mtx;
+//static std::vector<UsbhidDev> UHDEV;
+std::mutex UHDEV_mtx;
+std::vector<UsbhidDev> UHDEV;
+
 vector<Socket> NET;
 //vector<ftdi_dev> BITBANG;
 
@@ -200,6 +283,9 @@ unsigned char	GetBufin[6][COMMBUFSIZE*2];
 char comm_string[32];
 char comm_string2[32];
 CHAR szAppName[]="BinCom";
+
+// 追加: COMBUF 用ロック（グローバル）
+CRITICAL_SECTION COMBUF_CS[6];
 
 //extern vector<reg_struct> REG;
 extern vector<reg_main> REG;
@@ -229,104 +315,200 @@ struct ComReadBuf COMBUF[6];
 
 std::map<int,char[32]> PortList;
 
+// RAII ヘルパ: HANDLE を管理
+class UniqueHandle {
+public:
+    UniqueHandle(HANDLE h = NULL) noexcept : h_(h) {}
+    ~UniqueHandle() { if (h_ && h_ != INVALID_HANDLE_VALUE) CloseHandle(h_); }
+    UniqueHandle(UniqueHandle&& o) noexcept : h_(o.h_) { o.h_ = NULL; }
+    UniqueHandle& operator=(UniqueHandle&& o) noexcept { reset(); h_ = o.h_; o.h_ = NULL; return *this; }
+    // no copy
+    UniqueHandle(const UniqueHandle&) = delete;
+    UniqueHandle& operator=(const UniqueHandle&) = delete;
+    HANDLE get() const noexcept { return h_; }
+    HANDLE release() noexcept { HANDLE t = h_; h_ = NULL; return t; }
+    void reset(HANDLE h = NULL) noexcept { if (h_ && h_ != INVALID_HANDLE_VALUE) CloseHandle(h_); h_ = h; }
+    explicit operator bool() const noexcept { return h_ && h_ != INVALID_HANDLE_VALUE; }
+private:
+    HANDLE h_;
+};
+
+// RAII for GDI objects (HFONT 等)
+class UniqueGdi {
+public:
+    UniqueGdi(HGDIOBJ o = NULL) noexcept : o_(o) {}
+    ~UniqueGdi() { if (o_) DeleteObject(o_); }
+    UniqueGdi(UniqueGdi&& o) noexcept : o_(o.o_) { o.o_ = NULL; }
+    UniqueGdi& operator=(UniqueGdi&& o) noexcept { reset(); o_ = o.o_; o.o_ = NULL; return *this; }
+    UniqueGdi(const UniqueGdi&) = delete;
+    UniqueGdi& operator=(const UniqueGdi&) = delete;
+    HGDIOBJ get() const noexcept { return o_; }
+    void reset(HGDIOBJ o = NULL) noexcept { if (o_) DeleteObject(o_); o_ = o; }
+    explicit operator bool() const noexcept { return o_ != NULL; }
+private:
+    HGDIOBJ o_;
+};
+
+// FILE* 用 RAII
+struct FileCloser { void operator()(FILE* f) const noexcept { if (f) fclose(f); } };
+using unique_FILE = std::unique_ptr<FILE, FileCloser>;
+
+// HDEVINFO 用カスタムデリータ（SetupDiDestroyDeviceInfoList）
+struct DevInfoCloser { void operator()(HDEVINFO h) const noexcept { if (h && h != INVALID_HANDLE_VALUE) SetupDiDestroyDeviceInfoList(h); } };
+//using unique_devinfo = std::unique_ptr<std::_Nil, DevInfoCloser>; // 宣言目的（下で reinterpret_cast して使う）
+// 修正: std::_Nil は存在しないため、void* を使う
+using unique_devinfo = std::unique_ptr<void, DevInfoCloser>; // 宣言目的（下で reinterpret_cast して使う）
+
+// 補助：セットアップ API のハンドルを RAII で扱う実例関数 helper
+static inline std::unique_ptr<void, DevInfoCloser> make_devinfo(HDEVINFO h) noexcept {
+    return std::unique_ptr<void, DevInfoCloser>(reinterpret_cast<void*>(h));
+}
+//-------------
+static void RegWriteSafe(size_t regIndex, long addr, long value) {
+    if (regIndex >= REG.size()) {
+        // ログ出力（必要なら OutputDebugString を使う）
+        return;
+    }
+    if (REG[regIndex].isize <= 0) return;
+//  if (REG[regIndex].DATA == nullptr) return;
+    if (REG[regIndex].DATA.size() == 0) return;
+    if (addr < 0 || addr >= REG[regIndex].isize) {
+        // 範囲外アクセスを検出した場合はログを残す
+        char buf[128];
+        sprintf_s(buf, sizeof(buf), 
+        		"RegWriteSafe: out of range reg=%zu addr=%ld size=%d\n",
+        		regIndex, addr, REG[regIndex].isize);
+        OutputDebugStringA(buf);
+        return;
+    }
+    REG[regIndex].DATA[addr] = value;
+}
+
 /*--------------------------------------------------------------------------*/
 /* USB VID PID シリアル番号を取得する。取得情報はusb_serial_param型の       */
 /* stl::vectorのグローバルオブジェクトUSBSERに格納される。事前に宣言する事  */
 /*--------------------------------------------------------------------------*/
 int getUSBVID(void)
 {
-    HDEVINFO device_info;
-    PSP_DEVICE_INTERFACE_DETAIL_DATA detail_data = NULL;
-    ULONG required_length = 0;
-	int idx = 0;
-	int i,n,m,k;
-	char * end;
-	usb_serial_param V1;
-	TCHAR *BUFF2 = new TCHAR[128];
-
+//  HDEVINFO device_info;
+    HDEVINFO device_info = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT, NULL, NULL,
+                                               DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     // デバイス情報セットを取得
-    device_info = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT, NULL, NULL, 
-    								  DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+//  device_info = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT, NULL, NULL, 
+//    								  DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
     if (device_info == INVALID_HANDLE_VALUE) {
         std::cerr << "Failed to get device information set." << std::endl;
         return 1;
-    }                                      
-    SP_DEVINFO_DATA deviceInfoData = { 0 };
-    deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    }
+    // RAII で解放
+    auto deviceInfoScoped = make_devinfo(device_info);
+    //SP_DEVINFO_DATA deviceInfoData = { 0 };
+    SP_DEVINFO_DATA deviceInfoData = {};
+    //deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+    deviceInfoData.cbSize = sizeof(deviceInfoData);
+    
+    PSP_DEVICE_INTERFACE_DETAIL_DATA detail_data = NULL;
+    ULONG required_length = 0;
+//	int i,n,m,k;
+//	char * end;
 
+//	TCHAR *BUFF2 = new TCHAR[128];
+    std::vector<TCHAR> BUFF2(128); // 生 new/delete を排除
+	usb_serial_param V1;
+	int idx = 0;
+    
     for (DWORD j = 0; SetupDiEnumDeviceInfo(device_info, j, &deviceInfoData); j++) {
-        char hardwareIDBuffer[256];
-        DWORD requiredSize;
+        char hardwareIDBuffer[256] = {};
+        DWORD requiredSize = 0;
         // ハードウェアIDを取得
         if (SetupDiGetDeviceRegistryPropertyA(device_info, &deviceInfoData, 
-        	SPDRP_HARDWAREID, NULL,(PBYTE)hardwareIDBuffer, sizeof(hardwareIDBuffer), 
-        	&requiredSize)) {
+            SPDRP_HARDWAREID, NULL, reinterpret_cast<PBYTE>(hardwareIDBuffer),
+            sizeof(hardwareIDBuffer), &requiredSize)) {
+		//	SPDRP_HARDWAREID, NULL,(PBYTE)hardwareIDBuffer, sizeof(hardwareIDBuffer), 
+        //  &requiredSize)) {
             // VIDとPIDを解析
             std::string hardwareID(hardwareIDBuffer);
-            size_t vidPos = hardwareID.find("VID_");
-            size_t pidPos = hardwareID.find("PID_");
+        //  size_t vidPos = hardwareID.find("VID_");
+        //  size_t pidPos = hardwareID.find("PID_");
+            auto vidPos = hardwareID.find("VID_");
+            auto pidPos = hardwareID.find("PID_");
             if (vidPos != std::string::npos && pidPos != std::string::npos) {
                 std::string vid = hardwareID.substr(vidPos + 4, 4);
                 std::string pid = hardwareID.substr(pidPos + 4, 4);
-				V1.vid = strtol(vid.c_str(),&end,16);
-				V1.pid = strtol(pid.c_str(),&end,16);
-            }
+			//	V1.vid = strtol(vid.c_str(),&end,16);
+			//	V1.pid = strtol(pid.c_str(),&end,16);
+                V1.vid = strtol(vid.c_str(), nullptr, 16);
+                V1.pid = strtol(pid.c_str(), nullptr, 16);
+			}
 		}
         // COMポート名を取得
-        if (SetupDiGetDeviceRegistryPropertyA(device_info, &deviceInfoData, 
-        	SPDRP_FRIENDLYNAME, NULL, (PBYTE)V1.port,sizeof(V1.port), &requiredSize)) {
-        }
+    //  if (SetupDiGetDeviceRegistryPropertyA(device_info, &deviceInfoData, 
+    //		SPDRP_FRIENDLYNAME, NULL, (PBYTE)V1.port,sizeof(V1.port), &requiredSize)) {
+    //  }
+        DWORD requiredSize2 = 0;
+        SetupDiGetDeviceRegistryPropertyA(device_info, &deviceInfoData,SPDRP_FRIENDLYNAME,
+        	NULL,reinterpret_cast<PBYTE>(V1.port),sizeof(V1.port),&requiredSize2);
 		/*シリアル番号を取り出す。一緒にVID,PIDも取れるがここではシリアルだけ*/
-		if(CM_Get_Device_IDW(deviceInfoData.DevInst, BUFF2,128, 0)== CR_SUCCESS){
+	//	if(CM_Get_Device_IDW(deviceInfoData.DevInst, BUFF2,128, 0)== CR_SUCCESS){
+        if(CM_Get_Device_IDW(deviceInfoData.DevInst,
+        	 BUFF2.data(),static_cast<ULONG>(BUFF2.size()), 0) == CR_SUCCESS){
 		//	MessageBoxW(NULL,BUFF2, L"Hoge", MB_ICONHAND);	
 		// "FTDIBUS\VID_0403+PID_6015+DK0G0GKMA\0000"
-			n = 0;
-			m = 0;
-			k = 0;
-			for(i=0;i<wcslen(BUFF2);i++){
+		//	n = 0;
+		//	m = 0;
+		//	k = 0;
+            int n = 0, m = 0, k = 0;
+            size_t len = wcslen(BUFF2.data());
+        //  for(i=0;i<wcslen(BUFF2);i++){
+            for(size_t i = 0;i<len; ++i){
 			//	if((BUFF2[i] == '+')||(BUFF2[i] == '\\')){
-				if(BUFF2[i] == '\\'){
+				if(BUFF2[i] == L'\\'){
 					n++;
 					m++;
-				}else if(BUFF2[i] == '+'){
+				}else if(BUFF2[i] == L'+'){
 					n++;
-				}else if(BUFF2[i] == '&'){
+				}else if(BUFF2[i] == L'&'){
 					m++;
 				}else{
 				//	if((n == 3)&&(k<8)){//WCHARで8文字(charで倍)
 					if(((n == 3)||(m == 4))&&(k<8)){//WCHARで8文字(charで倍)
-						V1.ser[k] = BUFF2[i];
-						k++;
+                        V1.ser[k++] = static_cast<char>(BUFF2[i]);
+                    //  V1.ser[k] = BUFF2[i];
+					//	k++;
 					}
 				}
 			}
 			V1.ser[k] = 0;
 		//	MessageBoxW(NULL,V1.ser, L"Hoge", MB_ICONHAND);
 		}
-		char ATmp[4];
+		char ATmp[4] = {0};
 	//	char * result = strpbrk(V1.port, "COM");
 	//	ATmp[0] = result[3];
 	//	ATmp[1] = result[4];
 
 		char * result = strpbrk(V1.port, "C");
-		char * result2 = strpbrk(result, "O");
-		char * result3 = strpbrk(result2, "M");
-		
-		ATmp[0] = result3[1];
-		ATmp[1] = result3[2];
-
-		ATmp[2] = 0;
-		if (ATmp[1] == ')')ATmp[1] = 0;
+		if(result){
+			char * result2 = strpbrk(result, "O");
+			if(result2){
+				char * result3 = strpbrk(result2, "M");
+				if(result3){
+					ATmp[0] = result3[1];
+					ATmp[1] = result3[2];
+				//	ATmp[2] = 0;
+					if (ATmp[1] == ')')ATmp[1] = 0;
+				}
+			}
+		}
 		V1.port_num = atoi(ATmp);
 		USBSER.push_back(V1);
         idx++;
         ::ZeroMemory(&deviceInfoData, sizeof(deviceInfoData));
-        deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);        
+        deviceInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
     }
     // 情報セットを解放
-    SetupDiDestroyDeviceInfoList(device_info);
-    delete[] BUFF2;
-    BUFF2 = NULL;
+//  SetupDiDestroyDeviceInfoList(device_info);
+//  delete[] BUFF2;
+//  BUFF2 = NULL;
     return 0;
 }
 
@@ -382,6 +564,7 @@ int nlabel::serch(char * nname){
 	}
 	return j;
 }
+
 void nlabel::insert(char * nname,int nvar,int type){
 	mlabel M;
 //	unsigned long long i;
@@ -395,6 +578,7 @@ void nlabel::insert(char * nname,int nvar,int type){
 	M.type = type;
 	LV.push_back(M);
 }
+
 /*--------------------------------------------------------------------------*/
 int ulabel::serch(char * nname){
 	unsigned int i;
@@ -408,6 +592,7 @@ int ulabel::serch(char * nname){
 	}
 	return j;
 }
+
 void ulabel::insert(char * nname,long addr, long var){
 	plabel M;
 //	unsigned long long i;
@@ -421,6 +606,7 @@ void ulabel::insert(char * nname,long addr, long var){
 	M.num = var;
 	LU.push_back(M);
 }
+
 //------------------------------------------------------------------------
 //	long値実数から16進ASCIIへ。ltoa()を使わないのは、出力を大文字にしたい
 //だけの理由から
@@ -664,7 +850,10 @@ void send_scroll(unsigned int kai)
 					}else{
 						sRtnN++;
 					}
-					sRtnPos[sRtnN] = sedpoint;
+				//	sRtnPos[sRtnN] = sedpoint;
+					if (sRtnN >= 0 && sRtnN < (RTN_SIZE + 2)) {
+						sRtnPos[sRtnN] = sedpoint;
+					}
 				}
 				sFstN++;
 			}
@@ -678,12 +867,18 @@ void send_scroll(unsigned int kai)
 					}else{
 						sFstN++;
 					}
-					sRtnPos[sFstN] = sstpoint;
+				//	sRtnPos[sFstN] = sstpoint;
+					if (sFstN >= 0 && sFstN < (RTN_SIZE + 2)) {
+						sRtnPos[sFstN] = sstpoint;
+					}
 				}
 		//		sRtnN++;
 			}
 		//	sRtnPos[sRtnN] = sedpoint;
-			sRtnPos[sFstN] = sstpoint;
+		//	sRtnPos[sFstN] = sstpoint;
+			if (sFstN >= 0 && sFstN < (RTN_SIZE + 2)) {
+				sRtnPos[sFstN] = sstpoint;
+			}
 		}
 	}
 }
@@ -1316,8 +1511,8 @@ void HexDataP(HWND hWnd,unsigned char * Bufin,DWORD len)
 	HFONT hFont;
 	size_t ret;
 
-	unsigned int i,j,kai;
-	unsigned int k,n;
+	unsigned int i,j,kai,j2;
+	unsigned int k,n,n2;
 	unsigned long wtpoint2;
 	unsigned int ws = ((WSIZE_WIDTH-12)/8)-1;
 	unsigned int vs = (((((WSIZE_WIDTH-12)/8)-2)/4)*3);//48
@@ -1383,24 +1578,34 @@ void HexDataP(HWND hWnd,unsigned char * Bufin,DWORD len)
 			Disp[ws] = 0;
 			TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 		}else if(frm_U[j] == 1){//HEX
-			if((RtnPos[j]!=-1)&&(frmm[RtnPos[j]] != 0)){
+			j2 = j;
+		//	if((RtnPos[j]!=-1)&&(frmm[RtnPos[j]] != 0)){
+			if((RtnPos[j2]!=-1)&&(frmm[RtnPos[j2]] != 0)){
+				n2 = 0;
 				for(n=0;n<vs;n++){
-					if(frmm[RtnPos[j]+n] != 0){
-						line[n] = frmm[RtnPos[j]+n];
+				//	if(frmm[RtnPos[j]+n] != 0){
+					if(frmm[RtnPos[j2]+0+n2] != 0){
+						line[n] = frmm[RtnPos[j2]+0+n2];
+						n2++;
 					}else{
 						line[n] = 0x20;
+						j2++;
+						n2 = 0;
 					}
 	 				if(n%3 == 0){
 					//	line[vs+(n/3)] = charset(frmm[RtnPos[j]+vs+(n/3)]);
 					//	line[vs+(n/3)] = charset(Bufin[n/3]);
-						line[vs+1+(n/3)] = Incharset((unsigned char *)(frmm+RtnPos[j]+n));
+					//	line[vs+1+(n/3)] = Incharset((unsigned char *)(frmm+RtnPos[j]+n));
+						line[vs+1+(n/3)] 
+							= Incharset((unsigned char *)(frmm+RtnPos[j2]+1+n2));
 					} //アスキー表示も右端におまけする
 				}
-				for(i=n+1;i<vs+1;i++)line[i] = 0x20;
+		//		for(i=n+1;i<vs+1;i++)line[i] = 0x20;
 			//	line[n+1] = 0x20;
 			//	line[n+1+(vs/3)] = 0;
-				line[vs] = 0x20;
+				line[vs-2] = 0x20;
 				line[vs+2+(n/3)] = 0;
+			//	line[vs+1+(n/3)] = 0;
 				const char* source = (const char*)&line;
 			   	if (source != nullptr) {
 					mbstowcs_s(&ret,Disp,ws,source,ws-1);
@@ -2694,93 +2899,6 @@ int RegParser(FILE * F)
 	C_C.level = 0;
 
 	cgetchar(F);
-#if 0
-	if(C_C.flg == 1){/*文字列だったら*/
-		if(!(strcmp(C_C.text,"REGION_MAIN"))){
-			/*コマンド追加*/
-			part_counter = 0;
-			sub_counter = 0;
-			cgetchar(F);
-			while((C_C.flg !=1)&&(C_C.flg !=19)&&(C_C.flg !=0x0a))cgetchar(F);
-			if(C_C.flg == 1){
-				struct reg_struct * R1 = new struct reg_struct;
-				R1->name = new char[strlen(C_C.text)+1];
-				strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
-				REG.push_back(*R1);
-			//	delete R1;
-			}else if(C_C.flg == 19){
-				struct reg_struct * R1 = new struct reg_struct;
-				R1->name = new char[strlen(C_C.text)+1];
-				strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
-				REG.push_back(*R1);
-			//	delete R1;
-			}
-		}
-		if(!(strcmp(C_C.text,"PART"))){
-			sub_counter = 0;
-			part_counter++;
-			REG[REG.size()-1].isize = part_counter;
-		}
-		if(!(strcmp(C_C.text,"SUB"))){
-			sub_counter++;
-			REG[REG.size()-1].PART[part_counter-1].isize = sub_counter;
-		}
-		if(!(strcmp(C_C.text,"START"))){
-			cgetchar(F);
-			while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg != 0x0a))cgetchar(F);
-			if(C_C.flg == SC_NUM){
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].start = C_C.data;
-			}else if(C_C.flg == SC_TXT){
-				int index = LL.serch(C_C.text);
-				if(index >= 0){
-					REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].start
-					 = LL.LV[index].id;
-				}else{
-					/*エラー*/
-					REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter].start = 0;
-				}
-			}else{
-				/*エラー*/
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter].start = 0;
-			}
-		}
-		if(!(strcmp(C_C.text,"END"))){
-			cgetchar(F);
-			while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg !=0x0a))cgetchar(F);
-			if(C_C.flg == SC_NUM){
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize 
-					= C_C.data - REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].start +1;
-				if(REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize < 1){
-					/*エラー*/
-					REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize = 0;
-				}
-			}else if(C_C.flg == 1){
-				int index = LL.serch(C_C.text);
-				if(index >= 0){
-					REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize
-					 = LL.LV[index].id - REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].start + 1;
-					if(REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize < 1){
-						/*エラー*/
-						REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize = 0;
-					}
-				}else{
-					/*エラー*/
-					REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize = 0;
-				}
-			}else{
-				/*エラー*/
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize = 0;
-			}
-			if(REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize > 0){
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].DATA 
-					= new unsigned int[REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize];
-			}
-			for(i=0;i<REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].isize;i++){
-				REG[REG.size()-1].PART[part_counter-1].SUB[sub_counter-1].DATA[i] = 0;
-			}
-		}
-	}
-#else
 	if(C_C.flg == 1){/*文字列だったら*/
 		if(!(strcmp(C_C.text,"REGION"))){
 			/*領域追加*/
@@ -2788,72 +2906,105 @@ int RegParser(FILE * F)
 			sub_counter = 0;
 			cgetchar(F);
 			while((C_C.flg !=1)&&(C_C.flg !=19)&&(C_C.flg !=0x0a))cgetchar(F);
-			if(C_C.flg == 1){
-				struct reg_main * R1 = new struct reg_main;
-				R1->name = new char[strlen(C_C.text)+1];
-				strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
-				REG.push_back(*R1);
+		//	if(C_C.flg == 1){
+        	if(C_C.flg == 1 || C_C.flg == 19){
+			//	struct reg_main * R1 = new struct reg_main;
+			//	R1->name = new char[strlen(C_C.text)+1];
+			//	strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
+			//	REG.push_back(*R1);
+				reg_main R1;
+				R1.name = std::string(C_C.text);
+				R1.start = 0;
+				R1.isize = 0;
+				R1.DATA.clear();
+				REG.push_back(std::move(R1));
 			//	delete R1;
-			}else if(C_C.flg == 19){
-				struct reg_main * R1 = new struct reg_main;
-				R1->name = new char[strlen(C_C.text)+1];
-				strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
-				REG.push_back(*R1);
+		//	}else if(C_C.flg == 19){
+		//		struct reg_main * R1 = new struct reg_main;
+		//		R1->name = new char[strlen(C_C.text)+1];
+		//		strcpy_s(R1->name,strlen(C_C.text)+1,C_C.text);
+		//		REG.push_back(*R1);
 			//	delete R1;
 			}
 		}
 		if(!(strcmp(C_C.text,"START"))){
-			cgetchar(F);
-			while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg != 0x0a))cgetchar(F);
-			if(C_C.flg == SC_NUM){
-				REG[REG.size()-1].start = C_C.data;
-			}else if(C_C.flg == SC_TXT){
-				int index = LL.serch(C_C.text);
-				if(index >= 0){
-					REG[REG.size()-1].start = LL.LV[index].id;
-				}else{
-					/*エラー*/
-					REG[REG.size()-1].start = 0;
-				}
+	        if (REG.empty()) {
+				/* エラー処理: ログ出力してスキップ */
 			}else{
-				/*エラー*/
-				REG[REG.size()-1].start = 0;
-			}
-		}
-		if(!(strcmp(C_C.text,"END"))){
-			cgetchar(F);
-			while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg !=0x0a))cgetchar(F);
-			if(C_C.flg == SC_NUM){
-				REG[REG.size()-1].isize = C_C.data - REG[REG.size()-1].start +1;
-				if(REG[REG.size()-1].isize < 1){
-					/*エラー*/
-					REG[REG.size()-1].isize = 0;
-				}
-			}else if(C_C.flg == 1){
-				int index = LL.serch(C_C.text);
-				if(index >= 0){
-					REG[REG.size()-1].isize 
-					  = LL.LV[index].id - REG[REG.size()-1].start + 1;
-					if(REG[REG.size()-1].isize < 1){
+				cgetchar(F);
+				while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg != 0x0a))cgetchar(F);
+				if(C_C.flg == SC_NUM){
+				//	REG[REG.size()-1].start = C_C.data;
+	                REG.back().start = C_C.data;
+				}else if(C_C.flg == SC_TXT){
+					int index = LL.serch(C_C.text);
+					if(index >= 0){
+					//	REG[REG.size()-1].start = LL.LV[index].id;
+                 		REG.back().start = LL.LV[index].id;
+					}else{
 						/*エラー*/
-						REG[REG.size()-1].isize = 0;
+					//	REG[REG.size()-1].start = 0;
+              			REG.back().start = 0;
 					}
 				}else{
 					/*エラー*/
-					REG[REG.size()-1].isize = 0;
+				//	REG[REG.size()-1].start = 0;
+					REG.back().start = 0;
 				}
+			}
+		}
+		if(!(strcmp(C_C.text,"END"))){
+			if (REG.empty()) {
+				 /* エラー処理 */
 			}else{
-				/*エラー*/
-				REG[REG.size()-1].isize = 0;
-			}
-			if(REG[REG.size()-1].isize > 0){
-				REG[REG.size()-1].DATA = new long[REG[REG.size()-1].isize];
-			}
-			for(i=0;i<REG[REG.size()-1].isize;i++){
-				REG[REG.size()-1].DATA[i] = 0;
+				cgetchar(F);
+				while((C_C.flg !=1)&&(C_C.flg !=2)&&(C_C.flg !=0x0a))cgetchar(F);
+				int newSize = 0;
+				if(C_C.flg == SC_NUM){
+					newSize = C_C.data - REG.back().start + 1;
+					if (newSize < 1) newSize = 0;
+				//	REG[REG.size()-1].isize = C_C.data - REG[REG.size()-1].start +1;
+				//	if(REG[REG.size()-1].isize < 1){
+				//		/*エラー*/
+				//		REG[REG.size()-1].isize = 0;
+				//	}
+				}else if(C_C.flg == 1){
+					int index = LL.serch(C_C.text);
+					if(index >= 0){
+						newSize = LL.LV[index].id - REG.back().start + 1;
+						if (newSize < 1) newSize = 0;
+					//	REG[REG.size()-1].isize 
+					//	  = LL.LV[index].id - REG[REG.size()-1].start + 1;
+					//	if(REG[REG.size()-1].isize < 1){
+					//		/*エラー*/
+					//		REG[REG.size()-1].isize = 0;
+					//	}
+					}else{
+						/*エラー*/
+					//	REG[REG.size()-1].isize = 0;
+						newSize = 0;
+					}
+				}else{
+					/*エラー*/
+				//	REG[REG.size()-1].isize = 0;
+					newSize = 0;
+				}
+			//	if(REG[REG.size()-1].isize > 0){
+			//		REG[REG.size()-1].DATA = new long[REG[REG.size()-1].isize];
+			//	}
+			//	for(i=0;i<REG[REG.size()-1].isize;i++){
+			//		REG[REG.size()-1].DATA[i] = 0;
+			//	}
+				REG.back().isize = newSize;
+				if (REG.back().isize > 0) {
+					REG.back().DATA.assign(REG.back().isize, 0L);
+				}else{
+					REG.back().DATA.clear();
+				}
 			}
 		}
 		if(!(strcmp(C_C.text,"DEF"))){
+			long addr;
 			C_C.flg = 0;
 			C_C.text[0] = 0;
 			cgetchar(F);
@@ -2864,14 +3015,20 @@ int RegParser(FILE * F)
 			while((C_C.flg != 2)&&(C_C.flg != 0x0a))cgetchar(F);
 		//	while((C_C.flg != 1)&&(C_C.flg != 0x0a))cgetchar(F);
 			if(C_C.flg == SC_NUM){
-				LM.insert(Buf,C_C.data,0);
+				addr = C_C.data;
+				cgetchar(F);
+				while((C_C.flg != 2)&&(C_C.flg != 0x0a))cgetchar(F);
+				if(C_C.flg == SC_NUM){
+					LM.insert(Buf,addr,C_C.data);
+				}else{
+					LM.insert(Buf,C_C.data,0);
+				}
 			}else{
 				LM.insert(Buf,0,0);
 			}
 		//	delete[] Buf;
 		}
 	}
-#endif
 	if(C_C.flg == EOF){
 		return 0;
 	}else{
@@ -2889,7 +3046,7 @@ int measureParser(FILE * F)
 	char tmp[10];
 	char * end;
 	size_t ret;
-	char comm_string3[32];
+//	char comm_string3[32];
 	
 	for(i=0;i<256;i++){
 		C_C.text[i] = 0;
@@ -2902,51 +3059,67 @@ int measureParser(FILE * F)
 		if(!(strcmp(C_C.text,"DEVICE"))){/*計測器デバイス名 ASCII文字*/
 			cgetchar(F);/*次の文字列を読み出し*/
 			while((C_C.flg != 1)&&(C_C.flg != 19)&&(C_C.flg != 0x0a))cgetchar(F);
-			struct measurement_device * M1 = new struct measurement_device;
+		//	struct measurement_device * M1 = new struct measurement_device;
+			measurement_device M1;
 			measure_onflg = 1;
-			M1->name = new char[strlen(C_C.text)+1];
-			if(C_C.flg == 1){
-				strcpy_s(M1->name,strlen(C_C.text)+1,C_C.text);
-			}else if(C_C.flg == 19){
-				strcpy_s(M1->name,strlen(C_C.text)+1,C_C.text);
-			}
+		//	M1->name = new char[strlen(C_C.text)+1];
+		//	if(C_C.flg == 1){
+		//		strcpy_s(M1->name,strlen(C_C.text)+1,C_C.text);
+		//	}else if(C_C.flg == 19){
+		//		strcpy_s(M1->name,strlen(C_C.text)+1,C_C.text);
+		//	}
+			M1.name.assign(C_C.text, strlen(C_C.text));
 			if(C_C.flg != 0x0a){
 				cgetchar(F);/*次の文字列を読み出し*/
 				while((C_C.flg != 1)&&(C_C.flg != 19)&&(C_C.flg != 0x0a))cgetchar(F);
 				if(C_C.flg != 0x0a){
-					if(!(strcmp(C_C.text,"On"))){
-						MDEV.push_back(*M1);
+					if(!(strcmp(C_C.text,"On")) 
+					|| !(strcmp(C_C.text,"on")) 
+					|| !(strcmp(C_C.text,"ON"))){
+						MDEV.push_back(std::move(M1));
+					//	MDEV.push_back(*M1);
 						measure_onflg = 1;
-					}else if(!(strcmp(C_C.text,"on"))){
-						MDEV.push_back(*M1);
-						measure_onflg = 1;
-					}else if(!(strcmp(C_C.text,"ON"))){
-						MDEV.push_back(*M1);
-						measure_onflg = 1;
-					}else if(!(strcmp(C_C.text,"Off"))){
-						delete M1->name;
-						M1->name = NULL;
-						measure_onflg = 0;
-					}else if(!(strcmp(C_C.text,"OFF"))){
-						delete M1->name;
-						M1->name = NULL;
-						measure_onflg = 0;
-					}else if(!(strcmp(C_C.text,"off"))){
-						delete M1->name;
-						M1->name = NULL;
+					}else if(!(strcmp(C_C.text,"Off")) 
+					|| !(strcmp(C_C.text,"OFF")) 
+					|| !(strcmp(C_C.text,"off"))){
 						measure_onflg = 0;
 					}else{
-						delete M1->name;
-						M1->name = NULL;
 						measure_onflg = 0;
 					}
+				//	if(!(strcmp(C_C.text,"On"))){
+				//		MDEV.push_back(*M1);
+				//		measure_onflg = 1;
+				//	}else if(!(strcmp(C_C.text,"on"))){
+				//		MDEV.push_back(*M1);
+				//		measure_onflg = 1;
+				//	}else if(!(strcmp(C_C.text,"ON"))){
+				//		MDEV.push_back(*M1);
+				//		measure_onflg = 1;
+				//	}else if(!(strcmp(C_C.text,"Off"))){
+				//		delete M1->name;
+				//		M1->name = NULL;
+				//		measure_onflg = 0;
+				//	}else if(!(strcmp(C_C.text,"OFF"))){
+				//		delete M1->name;
+				//		M1->name = NULL;
+				//		measure_onflg = 0;
+				//	}else if(!(strcmp(C_C.text,"off"))){
+				//		delete M1->name;
+				//		M1->name = NULL;
+				//		measure_onflg = 0;
+				//	}else{
+				//		delete M1->name;
+				//		M1->name = NULL;
+				//		measure_onflg = 0;
+				//	}
 				}else{
-					delete M1->name;
-					M1->name = NULL;
+				//	delete M1->name;
+				//	M1->name = NULL;
 					measure_onflg = 0;
 				}
 			}else{
-				MDEV.push_back(*M1);
+			//	MDEV.push_back(*M1);
+				MDEV.push_back(std::move(M1));
 				measure_onflg = 1;
 			}
 		//	delete M1;
@@ -2955,12 +3128,14 @@ int measureParser(FILE * F)
 			while((C_C.flg != 1)&&(C_C.flg != 19)&&(C_C.flg != 0x0a))cgetchar(F);
 			i = int(MDEV.size())-1;
 			if(measure_onflg){
-				MDEV[i].setting_file_name = new char[strlen(C_C.text)+1];
-				if(C_C.flg == 1){
-					strcpy_s(MDEV[i].setting_file_name,strlen(C_C.text)+1,C_C.text);
-				}else if(C_C.flg == 19){
-					strcpy_s(MDEV[i].setting_file_name,strlen(C_C.text)+1,C_C.text);
-				}
+			//	MDEV[i].setting_file_name = new char[strlen(C_C.text)+1];
+			//	if(C_C.flg == 1){
+			//		strcpy_s(MDEV[i].setting_file_name,strlen(C_C.text)+1,C_C.text);
+			//	}else if(C_C.flg == 19){
+			//		strcpy_s(MDEV[i].setting_file_name,strlen(C_C.text)+1,C_C.text);
+			//	}
+			//	MDEV[i].setting_file_name.assign(C_C.text, strlen(C_C.text));
+				MDEV[i].setting_file_name.assign(C_C.text, strlen(C_C.text)+1);
 			}
 		}else if(!(strcmp(C_C.text,"DEVICE_MAKER"))){/*計測器メーカー*/
 			cgetchar(F);/*次の文字列を読み出し*/
@@ -2968,29 +3143,29 @@ int measureParser(FILE * F)
 			if(measure_onflg){
 				i = int(MDEV.size())-1;
 				if(!(strcmp(C_C.text,"YOKOKAWA"))){
-					MDEV[i].maker = MAKER_YOKOKAWA;			//1
+					MDEV[i].maker = maker_t(MAKER_YOKOKAWA);		//1
 				}else if(!(strcmp(C_C.text,"KIKUSUI"))){
-					MDEV[i].maker = MAKER_KIKUSUI;			//2
+					MDEV[i].maker = maker_t(MAKER_KIKUSUI);			//2
 				}else if(!(strcmp(C_C.text,"HP"))){
-					MDEV[i].maker = MAKER_HP;				//3
+					MDEV[i].maker = maker_t(MAKER_HP);				//3
 				}else if(!(strcmp(C_C.text,"KEYSIGHT"))){
-					MDEV[i].maker = MAKER_KEYSIGHT;			//4
+					MDEV[i].maker = maker_t(MAKER_KEYSIGHT);		//4
 				}else if(!(strcmp(C_C.text,"KEISOKU"))){
-					MDEV[i].maker = MAKER_KEISOKU;			//5
+					MDEV[i].maker = maker_t(MAKER_KEISOKU);			//5
 				}else if(!(strcmp(C_C.text,"FTDI"))){
-					MDEV[i].maker = MAKER_FTDI;				//6
+					MDEV[i].maker = maker_t(MAKER_FTDI);			//6
 				}else if(!(strcmp(C_C.text,"OWON"))){
-					MDEV[i].maker = MAKER_OWON;				//7
+					MDEV[i].maker = maker_t(MAKER_OWON);			//7
 				}else if(!(strcmp(C_C.text,"MATSUSADA"))){
-					MDEV[i].maker = MAKER_MATSUSADA;		//8
+					MDEV[i].maker = maker_t(MAKER_MATSUSADA);		//8
 				}else if(!(strcmp(C_C.text,"TAKASAGO"))){
-					MDEV[i].maker = MAKER_TAKASAGO;			//9
+					MDEV[i].maker = maker_t(MAKER_TAKASAGO);		//9
 				}else if(!(strcmp(C_C.text,"ALIENTEK"))){
-					MDEV[i].maker = MAKER_ALIENTEK;			//10
+					MDEV[i].maker = maker_t(MAKER_ALIENTEK);		//10
 				}else if(!(strcmp(C_C.text,"DUMMY"))){
-					MDEV[i].maker = MAKER_DUMMY;			//0
+					MDEV[i].maker = maker_t(MAKER_DUMMY);			//0
 				}else{
-					MDEV[i].maker = MAKER_DUMMY;			//0
+					MDEV[i].maker = maker_t(MAKER_DUMMY);			//0
 				}
 			}
 		}else if(!(strcmp(C_C.text,"DEVICE_TYPE"))){//1:serial2:IVI3:USB HID4:LAN5:GPIB
@@ -3012,24 +3187,31 @@ int measureParser(FILE * F)
 			if(C_C.flg != 0x0a){
 				if(measure_onflg){
 					i = int(MDEV.size())-1;
-					if(!(strcmp(C_C.text,"None"))){
+					if(!(strcmp(C_C.text,"None")) 
+					|| !(strcmp(C_C.text,"none")) 
+					|| !(strcmp(C_C.text,"NONE"))){
 						MDEV[i].delimiter = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].delimiter = 0;
-					}else if(!(strcmp(C_C.text,"NONE"))){
-						MDEV[i].delimiter = 0;
-					}else if(!(strcmp(C_C.text,"CR"))){
+				//	if(!(strcmp(C_C.text,"None"))){
+				//		MDEV[i].delimiter = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].delimiter = 0;
+				//	}else if(!(strcmp(C_C.text,"NONE"))){
+				//		MDEV[i].delimiter = 0;
+				//	}else if(!(strcmp(C_C.text,"CR"))){
+					}else if(!(strcmp(C_C.text,"CR")) || !(strcmp(C_C.text,"cr"))){
 						MDEV[i].delimiter = 1;
-					}else if(!(strcmp(C_C.text,"cr"))){
-						MDEV[i].delimiter = 1;
-					}else if(!(strcmp(C_C.text,"LF"))){
+				//	}else if(!(strcmp(C_C.text,"cr"))){
+				//		MDEV[i].delimiter = 1;
+				//	}else if(!(strcmp(C_C.text,"LF"))){
+					}else if(!(strcmp(C_C.text,"LF")) || !(strcmp(C_C.text,"lf"))){
 						MDEV[i].delimiter = 2;
-					}else if(!(strcmp(C_C.text,"lf"))){
-						MDEV[i].delimiter = 2;
-					}else if(!(strcmp(C_C.text,"CRLF"))){
+				//	}else if(!(strcmp(C_C.text,"lf"))){
+				//		MDEV[i].delimiter = 2;
+				//	}else if(!(strcmp(C_C.text,"CRLF"))){
+					}else if(!(strcmp(C_C.text,"CRLF")) || !(strcmp(C_C.text,"crlf"))){
 						MDEV[i].delimiter = 3;
-					}else if(!(strcmp(C_C.text,"crlf"))){
-						MDEV[i].delimiter = 3;
+				//	}else if(!(strcmp(C_C.text,"crlf"))){
+				//		MDEV[i].delimiter = 3;
 					}else{
 						MDEV[i].delimiter = 0;
 					}
@@ -3043,11 +3225,14 @@ int measureParser(FILE * F)
 			if(measure_onflg){
 				i = int(MDEV.size())-1;
 				if(C_C.flg == 2){/*番号指定*/
-					MDEV[i].serial_port_num = atoi(C_C.text);
-					strcpy_s(comm_string3,"\\\\.\\COM");
-					strcat_s(comm_string3,sizeof(comm_string3),C_C.text);
-					MDEV[i].serial_port = new char[strlen(comm_string3)+1];
-					strcpy_s(MDEV[i].serial_port,strlen(comm_string3)+1,comm_string3);
+				//	MDEV[i].serial_port_num = atoi(C_C.text);
+				//	strcpy_s(comm_string3,"\\\\.\\COM");
+				//	strcat_s(comm_string3,sizeof(comm_string3),C_C.text);
+				//	MDEV[i].serial_port = new char[strlen(comm_string3)+1];
+				//	strcpy_s(MDEV[i].serial_port,strlen(comm_string3)+1,comm_string3);
+					std::string comm_string3 = std::string("\\\\.\\COM") 
+											 + std::to_string(MDEV[i].serial_port_num);
+					MDEV[i].serial_port = std::move(comm_string3);
 				}else if(C_C.flg == 1){/*AからJまでのアルファベット大文字指定*/
 					/*PID,VID,シリアルと一致するシリアルポートを見つけて使用する*/
 					/*ここで指定したアルファベットでLuaスクリプトから指定操作できる*/
@@ -3056,12 +3241,13 @@ int measureParser(FILE * F)
 					//	MDEV[i].serial_port = new char[2];
 					//	MDEV[i].serial_port[0] = C_C.text[0];
 					//	MDEV[i].serial_port[1] = 0;
-					}else if(!(strcmp(C_C.text,"NONE"))){
+				//	}else if(!(strcmp(C_C.text,"NONE"))){
+					}else if(!(strcmp(C_C.text,"NONE")) || !(strcmp(C_C.text,"none"))){
 						MDEV[i].serial_port_num = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].serial_port_num = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].serial_port_num = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].serial_port_num = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].serial_port_num = 0;
 					}else{
 						MDEV[i].serial_port_num = 0;
 					}
@@ -3077,12 +3263,13 @@ int measureParser(FILE * F)
 				if(C_C.flg == 2){
 					MDEV[i].serial_baud = atol(C_C.text);
 				}else if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
+					if(!(strcmp(C_C.text,"NONE")) || !(strcmp(C_C.text,"none"))){
 						MDEV[i].serial_baud = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].serial_baud = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].serial_baud = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].serial_baud = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].serial_baud = 0;
 					}else{
 						MDEV[i].serial_baud = 0;
 					}
@@ -3093,12 +3280,13 @@ int measureParser(FILE * F)
 			while((C_C.flg != 1)&&(C_C.flg != 19)&&(C_C.flg != 0x0a))cgetchar(F);
 			if(measure_onflg){
 				i = int(MDEV.size())-1;
-				MDEV[i].VISA_Addr = new char[strlen(C_C.text)+1];
-				if(C_C.flg == 1){
-					strcpy_s(MDEV[i].VISA_Addr,strlen(C_C.text)+1,C_C.text);
-				}else if(C_C.flg == 19){
-					strcpy_s(MDEV[i].VISA_Addr,strlen(C_C.text)+1,C_C.text);
-				}
+				MDEV[i].VISA_Addr.assign(C_C.text, strlen(C_C.text));
+			//	MDEV[i].VISA_Addr = new char[strlen(C_C.text)+1];
+			//	if(C_C.flg == 1){
+			//		strcpy_s(MDEV[i].VISA_Addr,strlen(C_C.text)+1,C_C.text);
+			//	}else if(C_C.flg == 19){
+			//		strcpy_s(MDEV[i].VISA_Addr,strlen(C_C.text)+1,C_C.text);
+			//	}
 			}
 		}else if(!(strcmp(C_C.text,"DEVICE_LANADDR"))){/*IPV4*/
 			cgetchar(F);/*次の文字列を読み出し*/
@@ -3131,12 +3319,13 @@ int measureParser(FILE * F)
 				if(C_C.flg == 2){
 					MDEV[i].lan_port = atol(C_C.text);
 				}else if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
+					if(!(strcmp(C_C.text,"NONE")) || !(strcmp(C_C.text,"none"))){
 						MDEV[i].lan_port = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].lan_port = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].lan_port = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].lan_port = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].lan_port = 0;
 					}else{
 						MDEV[i].lan_port = 0;
 					}
@@ -3152,12 +3341,13 @@ int measureParser(FILE * F)
 				if(C_C.flg == 2){
 					MDEV[i].gpib_port = atol(C_C.text);
 				}else if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
+					if(!(strcmp(C_C.text,"NONE")) || !(strcmp(C_C.text,"none"))){
 						MDEV[i].gpib_port = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].gpib_port = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].gpib_port = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].gpib_port = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].gpib_port = 0;
 					}else{
 						MDEV[i].gpib_port = 0;
 					}
@@ -3175,19 +3365,19 @@ int measureParser(FILE * F)
 				if(C_C.flg == 2){
 				//	MDEV[i].usb_vid = atol(C_C.text);
 					MDEV[i].usb_vid = strtol(C_C.text,&end,16);
-					MDEV[i].usb_vid = C_C.data;
+				//	MDEV[i].usb_vid = C_C.data;
 				}else if(C_C.flg == 19){
 					MDEV[i].usb_vid = C_C.data;
 				}else if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
 						MDEV[i].usb_vid = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_vid = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_vid = 0;
-					}else{
-						MDEV[i].usb_vid = 0;
-					}
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_vid = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_vid = 0;
+				//	}else{
+				//		MDEV[i].usb_vid = 0;
+				//	}
 				}
 			}
 		}else if(!(strcmp(C_C.text,"DEVICE_PID"))){/*0xが無くても16進*/
@@ -3206,15 +3396,15 @@ int measureParser(FILE * F)
 				}else if(C_C.flg == 19){
 					MDEV[i].usb_pid = C_C.data;
 				}else if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
 						MDEV[i].usb_pid = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_pid = 0;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_pid = 0;
-					}else{
-						MDEV[i].usb_pid = 0;
-					}
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_pid = 0;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_pid = 0;
+				//	}else{
+				//		MDEV[i].usb_pid = 0;
+				//	}
 				}
 			}
 		}else if(!(strcmp(C_C.text,"DEVICE_SERNUM"))){
@@ -3223,17 +3413,22 @@ int measureParser(FILE * F)
 			if(measure_onflg){
 				i = int(MDEV.size())-1;
 				if(C_C.flg == 1){
-					if(!(strcmp(C_C.text,"NONE"))){
-						MDEV[i].usb_ser = NULL;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_ser = NULL;
-					}else if(!(strcmp(C_C.text,"none"))){
-						MDEV[i].usb_ser = NULL;
+					if(!(strcmp(C_C.text,"NONE")) || !(strcmp(C_C.text,"none"))){
+				//	if(!(strcmp(C_C.text,"NONE"))){
+						MDEV[i].usb_ser.clear();
+				//		MDEV[i].usb_ser = NULL;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_ser = NULL;
+				//	}else if(!(strcmp(C_C.text,"none"))){
+				//		MDEV[i].usb_ser = NULL;
 					}else{
 						j = (int)strlen(C_C.text) + 1;
 						if(j > 18)j = 17;
-						MDEV[i].usb_ser = new TCHAR[j];
-						mbstowcs_s(&ret,MDEV[i].usb_ser,j,C_C.text,16);
+						std::vector<wchar_t> wbuf(j);
+					//	MDEV[i].usb_ser = new TCHAR[j];
+					//	mbstowcs_s(&ret,MDEV[i].usb_ser,j,C_C.text,16);
+						mbstowcs_s(&ret, wbuf.data(), j, C_C.text, 16);
+						MDEV[i].usb_ser.assign(wbuf.data());
 					//	mbstowcs_s(&ret,MDEV[i].usb_ser,j-1,C_C.text,16);
 					//	strcpy_s(MDEV[i].usb_ser,strlen(C_C.text)+1,C_C.text);
 					}
@@ -3244,8 +3439,11 @@ int measureParser(FILE * F)
 					/*恐らくASCIIで領域に格納されているが、互換のためにWide char 16bitで*/
 					/*データとして格納。文字列長と2文字目で見分けていく*/
 						if(j > 18)j = 17;
-						MDEV[i].usb_ser = new TCHAR[j];
-						mbstowcs_s(&ret,MDEV[i].usb_ser,j,C_C.text,18);
+					//	MDEV[i].usb_ser = new TCHAR[j];
+					//	mbstowcs_s(&ret,MDEV[i].usb_ser,j,C_C.text,18);
+						std::vector<wchar_t> wbuf(j);
+						mbstowcs_s(&ret, wbuf.data(), j, C_C.text, 18);
+						MDEV[i].usb_ser.assign(wbuf.data());
 					}else{
 					/*FTDIは規格を守っているようで、シリアルはWide Char 16bitで8文字*/
 					/*先頭2文字はメーカ、6文字は0-9にAからZまで使って表現する36進数*/
@@ -3254,7 +3452,10 @@ int measureParser(FILE * F)
 					/*char互換になる*/
 						MDEV[i].usb_ser = new TCHAR[10];
 					//	strcpy_s(MDEV[i].usb_ser,strlen(C_C.text)+1,C_C.text);
-						mbstowcs_s(&ret,MDEV[i].usb_ser,10,C_C.text,10);
+				//		mbstowcs_s(&ret,MDEV[i].usb_ser,10,C_C.text,10);
+						std::vector<wchar_t> wbuf(10);
+						mbstowcs_s(&ret, wbuf.data(), 10, C_C.text, 10);
+						MDEV[i].usb_ser.assign(wbuf.data());
 					}
 				}
 			}
@@ -3291,7 +3492,8 @@ int measureCMDParser(FILE * F, int n)
 			cgetchar(F);/*次の文字列を読み出し*/
 			while((C_C.flg != 1)&&(C_C.flg != 19)&&(C_C.flg != 0x0a))cgetchar(F);
 			for(i=0;i<MDEV.size();i++){
-				if(!(strcmp(MDEV[i].name,C_C.text))){
+			//	if(!(strcmp(MDEV[i].name,C_C.text))){
+				if(!(strcmp(MDEV[i].name.c_str(),C_C.text))){
 					ch = i;
 				}
 			}
@@ -3466,8 +3668,8 @@ std::map<int, char[32]> enumerateSerialPorts2()
 {
     std::map<int, char[32]> result;
 	char test_string[32];
-	HANDLE	hTestCom;
-	hTestCom = 0;
+//	HANDLE	hTestCom;
+//	hTestCom = 0;
 	DCB	Testdcb;			//シリアルポートのDCB構造体
 	BOOL fTestSuccess;		//シリアルポート設定エラーフラグ
   	WCHAR HandleName[32];
@@ -3477,25 +3679,34 @@ std::map<int, char[32]> enumerateSerialPorts2()
 
 	for(int i=2;i<50;i++){
 		mbstowcs_s(&ret4,HandleName,32,test_string,32);
-	   	hTestCom = CreateFileW(HandleName,
-    		GENERIC_READ | GENERIC_WRITE,
-        	0,
-        	NULL,
-        	OPEN_EXISTING,
-			FILE_FLAG_OVERLAPPED, /*非同期読み書き*/
-	        NULL);							//Comm初期化
-    	if (hTestCom == INVALID_HANDLE_VALUE){	//Comm初期化失敗
+	// 	hTestCom = CreateFileW(HandleName,
+    //		GENERIC_READ | GENERIC_WRITE,
+    //    	0,
+    //    	NULL,
+    //    	OPEN_EXISTING,
+	//		FILE_FLAG_OVERLAPPED, /*非同期読み書き*/
+	//      NULL);							//Comm初期化
+		UniqueHandle hTestCom(CreateFileW(HandleName,
+			GENERIC_READ | GENERIC_WRITE,
+			0, NULL, OPEN_EXISTING,
+			FILE_FLAG_OVERLAPPED, NULL));
+        if (!hTestCom) {
+    //	if (hTestCom == INVALID_HANDLE_VALUE){	//Comm初期化失敗
 		//	MessageBoxW(NULL,test_string,L"NG1", MB_ICONHAND);
+		//	if(IsHandleValid(hTestCom))CloseHandle(hTestCom);
 		}else{
-			fTestSuccess = GetCommState(hTestCom,&Testdcb);
+		//	fTestSuccess = GetCommState(hTestCom,&Testdcb);
+            fTestSuccess = GetCommState(hTestCom.get(), &Testdcb);
     		if (!fTestSuccess) {//ステータス取得失敗
 		//		MessageBoxW(NULL,test_string,L"NG2", MB_ICONHAND);
 			}else{
 				sprintf_s(result[i],32,test_string);
 			}
 		}
-		if(hTestCom !=NULL)CloseHandle(hTestCom);
-		hTestCom = 0;
+	//	if(hTestCom !=NULL)CloseHandle(hTestCom);
+	//	hTestCom = 0;
+	//	if(IsHandleValid(hTestCom))CloseHandle(hTestCom);
+	//	hTestCom = NULL;
 		sprintf_s(test_string,32,"\\\\.\\COM%d",i);
 		mbstowcs_s(&ret4,HandleName,32,test_string,32);
 	}
@@ -3570,8 +3781,11 @@ HANDLE init_commport(struct serial_param * COMD)
 
 		}else{
 	//	MessageBoxW(NULL,L"Can't Get State of COM Port",COMD->comm_string,MB_ICONHAND);
-			CloseHandle(hCom);
-			hCom = 0;
+			if (IsHandleValid(hCom)) {
+				CloseHandle(hCom);
+			}
+        	hCom = NULL;
+		//	hCom = 0;
 			return(0);
 		}
 	}
@@ -3656,8 +3870,8 @@ HANDLE init_commport(struct serial_param * COMD)
 
 		}else{
 	//	MessageBoxW(NULL,"Can't Set State of COM Port","Error",MB_ICONHAND);
-			CloseHandle(hCom);
-       		hCom = 0;
+			SafeCloseHandle(hCom);
+       		//hCom = 0;
 			return(0);
 		}
     }
@@ -3818,10 +4032,17 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 #endif
 	for(i=0;i<5;i++){
 		hEventObject[i] = CreateEventW(NULL,TRUE,TRUE,LPCWSTR(L""));
+		if (!IsHandleValid(hEventObject[i])) {
+			// 作成失敗: ログやフォールバックはここで行う（簡潔に NULL に置換）
+			hEventObject[i] = NULL;
+		}
 		COMOverlapped[i].hEvent = hEventObject[i];
 		COMOverlapped[i].Offset = 0;
 		COMOverlapped[i].OffsetHigh = 0;
 		hEventObjectW[i] = CreateEventW(NULL,TRUE,TRUE,LPCWSTR(L""));
+		if (!IsHandleValid(hEventObjectW[i])) {
+			hEventObjectW[i] = NULL;
+		}
 		COMOverlappedW[i].hEvent = hEventObjectW[i];
 		COMOverlappedW[i].Offset = 0;
 		COMOverlappedW[i].OffsetHigh = 0;
@@ -3868,7 +4089,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	}	
 	
 	for(i=0;i<MDEV.size();i++){
-		fopen_s(&F,MDEV[i].setting_file_name,"rt");
+	//	fopen_s(&F,MDEV[i].setting_file_name,"rt");
+		fopen_s(&F,MDEV[i].setting_file_name.c_str(),"rt");
 		if(F != NULL){
 			while(measureCMDParser(F,i));
 			fclose(F);
@@ -3881,11 +4103,16 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
 //	MessageBoxW(NULL,L"A1",L"Debug",MB_ICONHAND);
 
-	if(LM.serch("BUSON") != -1){
-		if(REG[0].DATA != nullptr){
-			REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = BUSON_flg;
-		}
+//	if(LM.serch("BUSON") != -1){
+//		if(REG[0].DATA != nullptr){
+//			REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = BUSON_flg;
+//		}
+//	}
+	int busIdx = LM.serch("BUSON");
+	if (busIdx != -1) {
+		RegWriteSafe(0, LM.LU[busIdx].addr, BUSON_flg);
 	}
+	
 //	_ltow_s(LM.LU[(LM.serch("BUSON"))].addr,Wdummy,32,16);
 //	MessageBoxW(NULL,Wdummy,L"Debug",MB_ICONHAND);
 
@@ -3897,6 +4124,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	lua_setglobal(L, "DispParamfP");
 	lua_pushcfunction(L, SerialInit);
 	lua_setglobal(L, "SerialInit");
+	lua_pushcfunction(L, SerialClose);
+	lua_setglobal(L, "SerialClose");
 	lua_pushcfunction(L, SerialSend);
 	lua_setglobal(L, "SerialSend");
 	lua_pushcfunction(L, SerialRecv);
@@ -4012,15 +4241,18 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 			if(MDEV[i].serial_port_num > 100){
 				MDEV[i].init = 0;
 				for(j=0;j<USBSER.size();j++){
-					if(MDEV[i].usb_ser != NULL){
+				//	if(MDEV[i].usb_ser != NULL){
+					if(MDEV[i].usb_ser.size() != 0){
 						if((MDEV[i].usb_vid == USBSER[j].vid)
 						 &&(MDEV[i].usb_pid == USBSER[j].pid)){
-							if(!(wcscmp(MDEV[i].usb_ser,USBSER[j].ser))){
+						//	if(!(wcscmp(MDEV[i].usb_ser,USBSER[j].ser))){
+							if(!(wcscmp(MDEV[i].usb_ser.c_str(),USBSER[j].ser))){
 								sprintf_s(comm_string2,32,"\\\\.\\COM%d",
 														USBSER[j].port_num);
-								MDEV[i].serial_port = new char[strlen(comm_string2)+1];
-								strcpy_s(MDEV[i].serial_port,strlen(comm_string2)+1,
-														comm_string2);
+						//		MDEV[i].serial_port = new char[strlen(comm_string2)+1];
+						//		strcpy_s(MDEV[i].serial_port,
+						//			strlen(comm_string2)+1, comm_string2);
+								MDEV[i].serial_port = std::string(comm_string2);
 								MDEV[i].init = 1;
 							//	portset_flg = 1;
 							}
@@ -4029,8 +4261,10 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 						if((MDEV[i].usb_vid == USBSER[j].vid)
 						 &&(MDEV[i].usb_pid == USBSER[j].pid)){
 							sprintf_s(comm_string2,32,"\\\\.\\COM%d",USBSER[j].port_num);
-							MDEV[i].serial_port = new char[strlen(comm_string2)+1];
-						strcpy_s(MDEV[i].serial_port,strlen(comm_string2)+1,comm_string2);
+					//		MDEV[i].serial_port = new char[strlen(comm_string2)+1];
+					//	strcpy_s(MDEV[i].serial_port,
+					//		strlen(comm_string2)+1,comm_string2);
+							MDEV[i].serial_port = std::string(comm_string2);
 							MDEV[i].init = 1;
 							portset_flg = 1;
 						}
@@ -4061,7 +4295,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 					/*定義計測器リストをなめてVID,PIDの一致を見る*/
 					if((desc.idVendor == MDEV[i].usb_vid)
 					 &&(desc.idProduct == MDEV[i].usb_pid)){
-						usbhid_dev U;
+					//	usbhid_dev U;
+						unsigned char epin = 0, epout = 0;
      					libusb_config_descriptor *config;
      					const libusb_interface_descriptor *interdesc;
      					const libusb_endpoint_descriptor *epdesc;
@@ -4074,19 +4309,29 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	       						for(int kk = 0;kk < (int)interdesc->bNumEndpoints; kk++) {
 									epdesc = &interdesc->endpoint[kk];
 									if(epdesc->bEndpointAddress & 0x80){
-										U.EPIN = epdesc->bEndpointAddress;
+									//	U.EPIN = epdesc->bEndpointAddress;
+										epin = epdesc->bEndpointAddress;
 									}else{
-										U.EPOUT = epdesc->bEndpointAddress;
+									//	U.EPOUT = epdesc->bEndpointAddress;
+										epout = epdesc->bEndpointAddress;
 									}
+
 //	MessageBoxW(NULL,_itow(epdesc->bEndpointAddress,Wtmp0,10),_itow(epdesc->bmAttributes,Wtmp,10), MB_ICONHAND);
 //OWON HDS2102S OutEndpoint 0x01 InEndpoint 0x81
 								}
 							}
 						}
-						U.handle = handle;
-						U.MDEV_num = i;/*接続デバイスが定義計測器の何番であるか*/
-						int ret = libusb_claim_interface(U.handle,0);
-						UHDEV.push_back(U);
+				//		U.handle = handle;
+				//		U.MDEV_num = i;/*接続デバイスが定義計測器の何番であるか*/
+					//	int ret = libusb_claim_interface(U.handle,0);
+				//		int claim = libusb_claim_interface(U.handle,0);
+						int claim = libusb_claim_interface(handle,0);
+						UsbhidDev dev(handle, epin, epout, i);
+						{
+							std::lock_guard<std::mutex> lk(UHDEV_mtx);
+							UHDEV.push_back(std::move(dev));
+						}
+					//	UHDEV.push_back(U);
 						MDEV[i].init = 1;
 //	MessageBoxW(NULL,_itow(desc.idVendor,Wtmp0,10),_itow(desc.idProduct,Wtmp,10), MB_ICONHAND);
 					}else{
@@ -4135,8 +4380,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		fSuccess = GetCommState(hCom[0],&dcb);
     	if (! fSuccess) {					//Comm1ステータス取得失敗
     		MessageBoxW(NULL,L"Can not Get Comm State of COM Port",L"Error",MB_ICONHAND);
-    	    CloseHandle(hCom[0]);
-        	hCom[0] = 0;
+    	    SafeCloseHandle(hCom[0]);
+        	//hCom[0] = 0;
     	}
 	}
 	dcb.DCBlength = sizeof(DCB);
@@ -4209,8 +4454,8 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 		fSuccess = SetCommState(hCom[0],&dcb);
     	if (! fSuccess) {					//Comm1パラメータ設定失敗
     		MessageBoxW(NULL,L"Can't Set Comm State",L"Error",MB_ICONHAND);
-        	CloseHandle(hCom[0]);
-        	hCom[0] = 0;
+        	SafeCloseHandle(hCom[0]);
+        	//hCom[0] = 0;
     	}
     }
 	if(hCom[0]){
@@ -4296,10 +4541,11 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 //	_ASSERTE(_CrtCheckMemory());
 	
 	while (!REG.empty()) {
-    	if(REG.back().name != nullptr){delete[] REG.back().name; REG.back().name= NULL;}
-    	if(REG.back().DATA != nullptr){delete[] REG.back().DATA; REG.back().DATA= NULL;}
+//  	if(REG.back().name != nullptr){delete[] REG.back().name; REG.back().name= NULL;}
+//    	if(REG.back().DATA != nullptr){delete[] REG.back().DATA; REG.back().DATA= NULL;}
     	REG.pop_back();
-	}	
+	}
+
 //	_ASSERTE(_CrtCheckMemory());
 	j = (int)USBSER.size();
 	for (n = 0; n < j; n++)USBSER.pop_back();
@@ -4326,6 +4572,17 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 	}
 	CV.clear();/*全削除*/
 	
+//	j = (int)UHDEV.size();
+//	for(n=0;n<j;n++){
+//		if(UHDEV[n].handle != NULL){
+//			libusb_close(UHDEV[n].handle);
+//		}
+//	}
+	{
+		std::lock_guard<std::mutex> lk(UHDEV_mtx);
+	 // clear() により各 UsbhidDev のデストラクタで release/close が呼ばれる
+		UHDEV.clear();
+	}
 	libusb_free_device_list(list,1);
 	libusb_exit(NULL);
 	
@@ -4459,6 +4716,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		    hSubMenu0=CreatePopupMenu();
 		    hSubMenu1=CreatePopupMenu();
 		    hSubMenu2=CreatePopupMenu();
+		    hSubMenu3=CreatePopupMenu();
 	    	mbstowcs_s(&ret5,LABELName,32,PortText,32);
 			AppendMenuW (hMenu,MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu1,LABELName);
 		//	if(PortList.size() > 0){
@@ -4516,6 +4774,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			AppendMenuW (hSubMenu2,MF_STRING,((long long int)(0xA000))+0,L"Txt");
 			AppendMenuW (hSubMenu2,MF_STRING,((long long int)(0xA000))+1,L"Hex");
 			AppendMenuW (hSubMenu2,MF_STRING,((long long int)(0xA000))+2,L"Lua");
+#if BUSON_CMD
 			switch(BUSON_flg){
 				case 0:
 					AppendMenuW (hMenu,MF_STRING,IDM_BUSON,L"BUS ON");
@@ -4527,6 +4786,19 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					BUSON_flg = 1;
 					AppendMenuW (hMenu,MF_STRING,IDM_BUSON,L"BUS OFF");
 					break;
+			}
+#endif
+			size = (int)(LM.size());
+			if(size){
+				AppendMenuW (hMenu,MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu3,L"DirectCMD");
+				for(i=0;i<size;i++){
+				//	int wlen = (int)(wcslen(LM.LU[i].name[j]));
+				//	for(j=0;j<wlen;j++)Wdummy[j]= LM.LU[i].name[j];
+				//	Wdummy[wlen] = 0;
+					mbstowcs_s(&ret5,Wdummy,200,LM.LU[i].name,100);
+					//コマンドは300番から順番に割り振る
+					AppendMenuW (hSubMenu3,MF_STRING,((long long int)(0xB000))+i,Wdummy);
+				}
 			}
 			SetMenu(hWnd,hMenu);		//メニューが一つだけ
 		//	SetTimer(hWnd,1,1000,NULL);	//タイマイベントを1秒おきに
@@ -4540,13 +4812,21 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			ReleaseDC(hWnd,hdc);
 
 			InitializeCriticalSection(&cscom);
-
+			
+			for (i = 0; i < 6; ++i) {
+				InitializeCriticalSection(&COMBUF_CS[i]);
+			}
+			// スレッド実行フラグ初期化（true = 実行許可）
+			for (i = 0; i < 10; ++i) {
+				gThreadRun[i].store(true);
+			}
+            
 		//	hThread = CreateThread(NULL,0,ThreadFunc,(LPVOID)hWnd,0,&dwID);
 		//	if(hThread!=NULL)SetThreadPriority(hThread,THREAD_PRIORITY_LOWEST);
-			if(hCom[0] != NULL){
+	//		if(hCom[0] != NULL){
 				hThread[0] = CreateThread(NULL,0,ThreadFunc,(LPVOID)hWnd,0,&dwID);
 				if(hThread[0]!=NULL)SetThreadPriority(hThread[0],THREAD_PRIORITY_LOWEST);
-			}
+	//		}
 			if(hCom[1] != NULL){
 				hThread[1] = CreateThread(NULL,0,ThreadFunc2,(LPVOID)hWnd,0,&dwID);
 				if(hThread[1]!=NULL)SetThreadPriority(hThread[1],THREAD_PRIORITY_LOWEST);
@@ -4610,23 +4890,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					DialogBoxW(hInstance,L"DIALOG2",
 								HWND_DESKTOP,(DLGPROC)dlgProc2);
 					return 0;
+#if BUSON_CMD
 				case	IDM_BUSON:
 					switch(BUSON_flg){
 						case 0:
 						ModifyMenuW(hMenu,6,MF_BYPOSITION|MF_STRING,IDM_BUSON,L"BUS OFF");
 							if(LM.serch("BUSON") != -1){
-								if(REG[0].DATA != nullptr){
+							//	if(REG[0].DATA != nullptr){
+								if(REG[0].DATA.size() != 0){
 									BUSON_flg = 1;
-									REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 1;
+								//	REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 1;
+									int busIdx = LM.serch("BUSON");
+									if (busIdx != -1) {
+										RegWriteSafe(0, LM.LU[busIdx].addr, BUSON_flg);
+									}
 								}
 							}
 							break;
 						case 1:
 						ModifyMenuW(hMenu,6,MF_BYPOSITION|MF_STRING,IDM_BUSON,L"BUS ON");
 							if(LM.serch("BUSON") != -1){
-								if(REG[0].DATA != nullptr){
+							//	if(REG[0].DATA != nullptr){
+								if(REG[0].DATA.size() != 0){
 									BUSON_flg = 0;
-									REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 0;
+								//	REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 0;
+									int busIdx = LM.serch("BUSON");
+									if (busIdx != -1) {
+										RegWriteSafe(0, LM.LU[busIdx].addr, BUSON_flg);
+									}
 									lua_getglobal(L, "Startup");
 									lua_pcall(L, 0, 0, 0);
 								}
@@ -4635,9 +4926,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 						default:
 						ModifyMenuW(hMenu,6,MF_BYPOSITION|MF_STRING,IDM_BUSON,L"BUS ON");
 							if(LM.serch("BUSON") != -1){
-								if(REG[0].DATA != nullptr){
-									REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 0;
+							//	if(REG[0].DATA != nullptr){
+								if(REG[0].DATA.size() != 0){
 									BUSON_flg = 0;
+								//	REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] = 0;
+									int busIdx = LM.serch("BUSON");
+									if (busIdx != -1) {
+										RegWriteSafe(0, LM.LU[busIdx].addr, BUSON_flg);
+									}
 									lua_getglobal(L, "Startup");
 									lua_pcall(L, 0, 0, 0);
 								}
@@ -4645,6 +4941,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 							break;
 					}
 					return 0;
+#endif
 				case	IDM_READ:
 					//コマンド設定ファイルを読む
 					if(GetOpenFileNameW(&lpofn)){
@@ -4704,7 +5001,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case	IDM_SSAVE:/*送信データセーブ*/
 					if(send_save_flg){
 						send_save_flg = 0;
-        	       		CloseHandle(hSSF);   //ファイルを閉じる
+        	       		SafeCloseHandle(hSSF);   //ファイルを閉じる
 						ModifyMenuW(hSubMenu0,(UINT)(CV.size()+1),
 							MF_BYPOSITION|MF_STRING,
 							IDM_SSAVE,L"SaveSendData");
@@ -4730,7 +5027,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				case	IDM_SAVE:/*受信データセーブ*/
 					if(Save_flg){/*終了*/
 						daytime_write(hSF);	//データ終端に日付書き込み
-        	       		CloseHandle(hSF);   //ファイルを閉じる
+        	       		SafeCloseHandle(hSF);   //ファイルを閉じる
 						ModifyMenuW(hMenu,3,MF_BYPOSITION|MF_STRING,
 							IDM_SAVE,L"SAVE");
 						Save_flg = 0;
@@ -4767,8 +5064,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					DestroyWindow(hWnd);
 					break;
 			}
-			if(hCom[0] != NULL){
-				if((wmId >(0x8000-1))&&(wmId < (0x9000))){
+		//	if(hCom[0] != NULL){
+			if((wmId >(0x8000-1))&&(wmId < (0x9000))){
+				if(hCom[0] != NULL){
 					int i;
 					DWORD	len,l;
 					l = ((DWORD)(wParam)-0x8000);/*コマンド番号取得*/
@@ -4794,7 +5092,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					}else{
 						//----------------------------
 					}
-				}else if((wmId >(0x9000-1))&&(wmId < (0xA000))){
+				}
+			}else if((wmId >(0x9000-1))&&(wmId < (0xA000))){
+				if(hCom[0] != NULL){
 					DWORD l = ((DWORD)(wParam)-0x9000);/*コマンド番号取得*/
 					char bkup_string[32];
 					if(!(strcmp(COMMPARAM[0].comm_string,LPCSTR(PortList[l])))){
@@ -4802,7 +5102,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					}else{
 						sprintf_s(bkup_string,32,COMMPARAM[0].comm_string);
 						sprintf_s(COMMPARAM[0].comm_string,32,PortList[l]);
-						CloseHandle(hCom[0]);
+						SafeCloseHandle(hCom[0]);
 						init_commport(&COMMPARAM[0]);
 						if(hCom[0]){
 							COMMPARAM[0].Init = 1;
@@ -4828,41 +5128,49 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 							}
 						}
 					}
-				}else if (wmId >(0xA000-1)){
-					DWORD l = ((DWORD)(wParam)-0xA000);/*コマンド番号取得*/
-					switch(l){
-						case 0://Text
-							Display_flg = 0;
-							frm_U[RtnN] = 0;
-						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Txt");
-							break;
-						case 1://Hex
-							Display_flg = 1;
-							frm_U[RtnN] = 1;
-						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Hex");
-							break;
-						case 2://Lua
-							Display_flg = 2;
-							frm_U[RtnN] = 2;
-						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Lua");
-							break;
-						default:
-							Display_flg = 0;
-							frm_U[RtnN] = 0;
-						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Txt");
-							break;
-					}
 				}
+			//	}else if (wmId >(0xA000-1)){
+			}else if((wmId >(0xA000-1))&&(wmId < (0xB000))){
+				DWORD l = ((DWORD)(wParam)-0xA000);/*コマンド番号取得*/
+				switch(l){
+					case 0://Text
+						Display_flg = 0;
+						frm_U[RtnN] = 0;
+						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Txt");
+						break;
+					case 1://Hex
+						Display_flg = 1;
+						frm_U[RtnN] = 1;
+						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Hex");
+						break;
+					case 2://Lua
+						Display_flg = 2;
+						frm_U[RtnN] = 2;
+						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Lua");
+						break;
+					default:
+						Display_flg = 0;
+						frm_U[RtnN] = 0;
+						ModifyMenuW(hMenu,5,MF_BYPOSITION|MF_POPUP|MF_STRING,(UINT_PTR)hSubMenu2,L"Txt");
+						break;
+				}
+			}else if (wmId >(0xB000-1)){
+				DWORD l = ((DWORD)(wParam)-0xB000);/*コマンド番号取得*/
+			//	if(REG[0].DATA != nullptr){
+			//		REG[0].DATA[(LM.LU[l].addr)] = LM.LU[l].num;
+			//	}
+				RegWriteSafe(0, LM.LU[l].addr, LM.LU[l].num);
 			}
 			break;
 		case WM_READ_END:/*データ受信*/
 		{
-			DWORD 			len,len2,lenp,lenq;
-			DWORD           len_return;
+		//	DWORD 			len,len2,lenp,lenq;
+			DWORD 			len,len2;
+		//	DWORD           len_return;
 			BOOL			rtnflg;
 			BOOL			nflg;
 			int ch;
-			unsigned int k;
+		//	unsigned int k;
 			char  CDummy[20] = {0};
 			wmId    = LOWORD(wParam);
 			
@@ -4873,10 +5181,45 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			len = COMBUF[ch].len;
 			len2 = COMBUF[ch].len2;
 
-			if (len>0) {	//何かComから受け取ったなら
+			// コピーする長さを安全に取得してロック内でクリア
+			EnterCriticalSection(&COMBUF_CS[ch]);
+			DWORD bufLen = COMBUF[ch].len;
+			DWORD bufLen2 = COMBUF[ch].len2;
+
+			// 動的に必要なだけコピー（大きなバッファなので heap 使用）
+		//	unsigned char *localBuf = nullptr;
+		//	unsigned char *localBuf2 = nullptr;
+			// vector を使って安全コピー
+			std::vector<unsigned char> localBuf;
+			std::vector<unsigned char> localBuf2;
+			if (bufLen > 0) {
+			//	localBuf = (unsigned char*)malloc(bufLen);
+			//	if (localBuf) memcpy(localBuf, COMBUF[ch].Buf, bufLen);
+				localBuf.resize(bufLen);
+				memcpy(localBuf.data(), COMBUF[ch].Buf, bufLen);
+			}
+			if (bufLen2 > 0) {
+			//	localBuf2 = (unsigned char*)malloc(bufLen2);
+			//	if (localBuf2) memcpy(localBuf2, COMBUF[ch].Buf2, bufLen2);
+				localBuf2.resize(bufLen2);
+				memcpy(localBuf2.data(), COMBUF[ch].Buf2, bufLen2);
+   			}
+			// 取得後に共有バッファをクリア（ロック内で）
+			COMBUF[ch].len = 0;
+			COMBUF[ch].len2 = 0;
+			COMBUF[ch].flg = 0;
+			LeaveCriticalSection(&COMBUF_CS[ch]);
+
+		//	if (len>0) {	//何かComから受け取ったなら
+		//	if (bufLen>0) {	//何かComから受け取ったなら
+			if (!localBuf.empty()) {
 				if(ch >0){
-					for(k=0;k<len2;k++){
-						if(COMBUF[ch].Buf2[k] == ','){
+				//	for(k=0;k<len2;k++){
+					// 既存の ch>0 の処理(localBuf2を参照して'DCV'等の判定を行う)
+					for (unsigned int k = 0; k < bufLen2; ++k) {
+					//	if(COMBUF[ch].Buf2[k] == ','){
+					//	if(localBuf2 && localBuf2[k] == ',') {
+						if((!localBuf2.empty()) && localBuf2[k] == ',') {
 							CDummy[0] = COMBUF[ch].Buf2[k+1];
 							CDummy[1] = COMBUF[ch].Buf2[k+2];
 							CDummy[2] = COMBUF[ch].Buf2[k+3];
@@ -4908,9 +5251,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 						}
 					}
 					if((Debug_flg - 1) == ch){
-						WriteFile(hSAVE1F,COMBUF[ch].Buf,len2,&len_return,NULL);
+						DWORD len_return;
+					//	WriteFile(hSAVE1F,COMBUF[ch].Buf,len2,&len_return,NULL);
+					//	if(localBuf) WriteFile(hSAVE1F,localBuf,bufLen2,&len_return,NULL);
+						WriteFile(hSAVE1F,localBuf.data(),
+							static_cast<DWORD>(localBuf.size()), &len_return, NULL);
 					}
-					COMBUF[ch].len = 0;
+				//	COMBUF[ch].len = 0;
 				}else{
 				//	lenq = len;
 				//	if(len > 368){
@@ -4920,7 +5267,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				//		lenp = 0;
 				//	}/*lenqは表示バイト、lenpはバッファ先頭からのシフト値*/
 					if(Save_flg){
-						WriteFile(hSF,COMBUF[0].Buf,len,&len_return,NULL);
+						DWORD len_return;
+					//	WriteFile(hSF,localBuf,bufLen,&len_return, NULL);
+					//	WriteFile(hSF,COMBUF[0].Buf,len,&len_return,NULL);
+						WriteFile(hSF,localBuf.data(),
+							static_cast<DWORD>(localBuf.size()), &len_return, NULL);
 					}
 				//	COMBUF[ch].len -= len;
 				//	if(COMBUF[ch].len > COMMBUFSIZE)COMBUF[ch].len = COMMBUFSIZE;
@@ -4929,20 +5280,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				//			COMBUF[ch].Buf[i] = COMBUF[ch].Buf[len+i];
 				//		}
 				//	}
-					COMBUF[ch].len = 0;
-					COMBUF[ch].flg = 0;
+				//	COMBUF[ch].len = 0;
+				//	COMBUF[ch].flg = 0;
 					if(Display_flg == 0){
-						DisplayData(hWnd,COMBUF[ch].Buf,len);
-					}else if(Display_flg == 1){
+					//	DisplayData(hWnd,COMBUF[ch].Buf,len);
+						DisplayData(hWnd,localBuf.data(),
+							static_cast<DWORD>(localBuf.size()));
+        			}else if(Display_flg == 1){
 					//	HexDataP(hWnd,COMBUF[ch].Buf+lenp,lenq);
-						HexDataP(hWnd,COMBUF[ch].Buf,len);
-					}else{
+					//	HexDataP(hWnd,COMBUF[ch].Buf,len);
+        				HexDataP(hWnd,localBuf.data(),
+        					static_cast<DWORD>(localBuf.size()));
+        			}else{
 					
 					}
 					RtnCnt = 0;
 				//	HexDataP(hWnd,COMBUF[ch].Buf+lenp,lenq);
 				}
 			}
+		//	// 解放
+		//	if (localBuf) free(localBuf);
+		//	if (localBuf2) free(localBuf2);
 		}
 		break;
 		case WM_PAINT:
@@ -4956,10 +5314,34 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 			int i;
 		//	DeleteObject(hNewFont);
-			if(Save_flg)CloseHandle(hSF);   //ファイルを閉じる
+			if(Save_flg)SafeCloseHandle(hSF);   //ファイルを閉じる
+		// 1) スレッドに終了要求を送る
+			for (i = 0; i < 10; ++i) {
+				gThreadRun[i].store(false);
+			}
+		// 2) スレッドが Wait している可能性のあるイベントをセットしてアンブロック
+			for (i = 0; i < 5; ++i) {
+				if (COMOverlapped[i].hEvent) SetEvent(COMOverlapped[i].hEvent);
+				if (COMOverlappedW[i].hEvent) SetEvent(COMOverlappedW[i].hEvent);
+				if (hEventObject[i]) SetEvent(hEventObject[i]);
+				if (hEventObjectW[i]) SetEvent(hEventObjectW[i]);
+			}
+		// 3) スレッドの終了を待ち、ハンドルを閉じる（タイムアウトを設定）
+			for (i = 0; i < 10; ++i) {
+				if (hThread[i] != NULL) {
+					DWORD wait = WaitForSingleObject(hThread[i], 2000); // 2秒待つ
+			// タイムアウトや失敗時はログ記録など行ってハンドルを閉じる（強制TerminateThread は避ける）
+				//	CloseHandle(hThread[i]);
+				//	hThread[i] = NULL;
+					SafeCloseHandle(hThread[i]);
+				}
+			}
 			for(i=0;i<5;i++){
-		    	if(hCom[i]!=0)CloseHandle(hCom[i]);
-            	hCom[i] = NULL;
+				SafeCloseHandle(hCom[i]);
+		    //	if(hCom[i]!=0){
+        	//		CloseHandle(hCom[i]);
+			//		hCom[i] = NULL;
+			//	}
 			}
 		//	if(L != NULL){
 		//		lua_close(L);
@@ -4972,6 +5354,9 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		{
 			int i;
 			DeleteCriticalSection(&cscom);
+			for (i = 0; i < 6; ++i) {
+				DeleteCriticalSection(&COMBUF_CS[i]);
+			}
         //	if(hCom[0]!=0)CloseHandle(hCom[0]);
 		//	for(i=0;i<5;i++){
 		//  	if(hCom[i]!=0)CloseHandle(hCom[i]);
@@ -5072,9 +5457,12 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					int i;
 					DWORD	len,l;
 					if(Lua_flg == 1){
+//#if BUSON_CMD
+#if 1
 					//	if(BUSON_flg == 0){
 						if(LM.serch("BUSON") != -1){
-							if(REG[0].DATA != nullptr){
+						//	if(REG[0].DATA != nullptr){
+							if(REG[0].DATA.size() != 0){
 								if(REG[0].DATA[(LM.LU[(LM.serch("BUSON"))].addr)] == 0){
 									lua_getglobal(L, "Loop");
 									lua_pcall(L, 0, 0, 0);
@@ -5085,6 +5473,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 							}
 							DrawMenuBar(hWnd);
 						}
+#endif
 					}
 					if(sendtimer.flg){/*インターバル送信用*/
 						sendtimer.local++;
@@ -5103,8 +5492,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 						fSuccess = GetCommState(hCom[0],&dcb);
 						if(! fSuccess){					//Comm1ステータス取得失敗
 	//	MessageBoxW(NULL,L"Can't Get State of COM Port",COMD->comm_string,MB_ICONHAND);
-							CloseHandle(hCom[0]);
-							hCom[0] = 0;
+							SafeCloseHandle(hCom[0]);
+							//hCom[0] = 0;
 							COMMPARAM[0].Init = 0;
 							sprintf_s(PortText,18,"COMX");
 							mbstowcs_s(&ret5,LABELName,200,PortText,200);
@@ -5216,7 +5605,7 @@ BOOL   CALLBACK dlgProc(HWND hwndDlg,UINT msg,WPARAM wParam,LPARAM lParam)
 	return FALSE;
 }
 //-------------コマンド用ダイアログのプロシージャ--------------------
-BOOL   CALLBACK dlgProc2(HWND hwndDlg,UINT msg,WPARAM wParam,LPARAM lParam)
+BOOL CALLBACK dlgProc2(HWND hwndDlg,UINT msg,WPARAM wParam,LPARAM lParam)
 {
 	WCHAR Wbuf[100];
 	unsigned char getbuf[4];
@@ -5249,9 +5638,11 @@ BOOL   CALLBACK dlgProc2(HWND hwndDlg,UINT msg,WPARAM wParam,LPARAM lParam)
 						}
 						inlen = GetDlgItemTextW(hwndDlg,ID_TC,Wbuf,100);
 						if(axtolW(Wbuf,getbuf,inlen)){
-							REG[0].DATA[addr] = (getbuf[2] << 8| getbuf[3]) & 0xffff;
+						//	REG[0].DATA[addr] = (getbuf[2] << 8| getbuf[3]) & 0xffff;
+							RegWriteSafe(0,addr,(getbuf[2] << 8| getbuf[3]) & 0xffff);
 						}else{
-							REG[0].DATA[addr] = 0xff;	/*Data = 0xff*/
+						//	REG[0].DATA[addr] = 0xff;	/*Data = 0xff*/
+							RegWriteSafe(0,addr,0xff);
 						}
 					}
 					return TRUE;
@@ -5295,42 +5686,74 @@ DWORD WINAPI ThreadFunc(LPVOID vdParam) {
 	DWORD RtnParam,EvParam,len,len2;
 	LPTSTR lpMessageBuffer = NULL;
 
-	while(1){
-		//データ受信のイベントで待つ
-		std::ignore =ReadFile(hCom[0],GetBufin[0],131072,&EvParam,&COMOverlapped[0]);
+	//while(1){
+	while (gThreadRun[0].load()) {
+        if (!IsHandleValid(hCom[0])) {
+            Sleep(100);
+            continue;
+        }else{
+	//	//データ受信のイベントで待つ
+	//	std::ignore =ReadFile(hCom[0],GetBufin[0],131072,&EvParam,&COMOverlapped[0]);
+		// Overlapped で ReadFile を発行し、エラーをチェック
+			BOOL readRet =ReadFile(hCom[0], GetBufin[0], 131072, &EvParam, &COMOverlapped[0]);
+			if (!readRet) {
+				DWORD err = GetLastError();
+				if (err != ERROR_IO_PENDING) {
+					LogOverlappedError("ReadFile ThreadFunc[0]", err);
+					Sleep(50); // 過度なループを避ける
+					continue;
+				}
+				// ERROR_IO_PENDING: 正常（完了待ちへ）
+			}
+		}
 		/*ReadFileからのイベントオブジェクトシグナルを調べる*/
 		RtnParam = WaitForSingleObject(COMOverlapped[0].hEvent,100);
 		if(RtnParam == WAIT_OBJECT_0){
-			GetOverlappedResult(hCom[0],&COMOverlapped[0],&len, FALSE);
-			if(len > 0){
+			BOOL got = GetOverlappedResult(hCom[0], &COMOverlapped[0],&len, FALSE);
+			if (!got) {
+				DWORD err = GetLastError();
+				LogOverlappedError("GetOverlappedResult ThreadFunc[0]", err);
+			}else if(len > 0){
 				len2 = len;
+				// 共有バッファ更新はロックで保護
+				EnterCriticalSection(&COMBUF_CS[0]);
 				if((COMBUF[0].len + len)<COMMBUFSIZE){
+					for(i=0;i<len;++i)COMBUF[0].Buf[COMBUF[0].len + i] = GetBufin[0][i];
 					COMBUF[0].len += len;
-					len = COMMBUFSIZE - COMBUF[0].len;
+				//	len = COMMBUFSIZE - COMBUF[0].len;
 				}else{
+				size_t space=(COMMBUFSIZE>COMBUF[0].len)?(COMMBUFSIZE-COMBUF[0].len):0;
+					for(i=0;i<space;++i)COMBUF[0].Buf[(COMBUF[0].len+i)&0x1ffff]=GetBufin[0][i];
 					COMBUF[0].len = COMMBUFSIZE;
 				}
-				for(i=0;i<len;i++)COMBUF[0].Buf[COMBUF[0].len + i] = GetBufin[0][i];
-				if((COMBUF[0].len2 + len)<COMMBUFSIZE){
+				if((COMBUF[0].len2 + len2)<COMMBUFSIZE){
+					for (i=0;i<len2;++i)COMBUF[0].Buf2[COMBUF[0].len2+i]=GetBufin[0][i];
 					COMBUF[0].len2 += len2;
-					len2 = COMMBUFSIZE - COMBUF[0].len2;
+				//	len2 = COMMBUFSIZE - COMBUF[0].len2;
 				}else{
+				size_t space2=(COMMBUFSIZE>COMBUF[0].len2)?(COMMBUFSIZE-COMBUF[0].len2):0;
+					for(i=0;i<space2;++i)COMBUF[0].Buf2[(COMBUF[0].len2+i)&0x1ffff]=GetBufin[0][i];
 					COMBUF[0].len2 = COMMBUFSIZE;
 				}
-				for(i=0;i<len2;i++)COMBUF[0].Buf2[COMBUF[0].len2 + i] = GetBufin[0][i];
 				COMBUF[0].flg++;
+				LeaveCriticalSection(&COMBUF_CS[0]);
 				PostMessage(hogeWnd,WM_READ_END,0,0);/*メインスレッドで処理*/
 			}
+		}else if (RtnParam == WAIT_TIMEOUT) {
+			// タイムアウトは通常ループ継続
 		}else if (RtnParam == WAIT_FAILED) {
-			FormatMessage(
-				FORMAT_MESSAGE_ALLOCATE_BUFFER |
-				FORMAT_MESSAGE_FROM_SYSTEM,
-				NULL,
-				GetLastError(),
-				LANG_USER_DEFAULT,
-				(LPTSTR)&lpMessageBuffer,
-				0,
-				NULL);
+			DWORD err = GetLastError();
+			LogOverlappedError("WaitForSingleObject ThreadFunc[0]", err);
+			Sleep(50);
+		//	FormatMessage(
+		//		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		//		FORMAT_MESSAGE_FROM_SYSTEM,
+		//		NULL,
+		//		GetLastError(),
+		//		LANG_USER_DEFAULT,
+		//		(LPTSTR)&lpMessageBuffer,
+		//		0,
+		//		NULL);
 		//	MessageBox(NULL, lpMessageBuffer, "Hoge", MB_ICONHAND);
 		}
 		ResetEvent(COMOverlapped[0].hEvent);/*イベントは手動リセット*/
@@ -5341,34 +5764,72 @@ DWORD WINAPI ThreadFunc(LPVOID vdParam) {
 DWORD WINAPI ThreadFunc2(LPVOID vdParam) {
 	unsigned int i;
 //	BOOL ret;
-	DWORD RtnParam,EvParam,len;
+	DWORD RtnParam,EvParam,len,len2;
 	LPTSTR lpMessageBuffer = NULL;
 
-	while(1){
+	//while(1){
+	while (gThreadRun[1].load()) {
 		//データ受信のイベントで待つ
-		std::ignore = ReadFile(hCom[1],GetBufin[1],131072,&EvParam,&COMOverlapped[1]);
+	//	std::ignore = ReadFile(hCom[1],GetBufin[1],131072,&EvParam,&COMOverlapped[1]);
+		BOOL readRet =ReadFile(hCom[1],GetBufin[1],131072,&EvParam,&COMOverlapped[1]);
+		if (!readRet) {
+			DWORD err = GetLastError();
+			if (err != ERROR_IO_PENDING) {
+				LogOverlappedError("ReadFile ThreadFunc[1]", err);
+				Sleep(50); // 過度なループを避ける
+				continue;
+			}
+			// ERROR_IO_PENDING: 正常（完了待ちへ）
+		}
+		
 		/*ReadFileからのイベントオブジェクトシグナルを調べる*/
 		RtnParam = WaitForSingleObject(COMOverlapped[1].hEvent,100);
 		if(RtnParam == WAIT_OBJECT_0){
-			GetOverlappedResult(hCom[1],&COMOverlapped[1],&len, FALSE);
-			if(len > 0){
-				for(i=0;i<len;i++)COMBUF[1].Buf[COMBUF[1].len + i] = GetBufin[1][i];
-				for(i=0;i<len;i++)COMBUF[1].Buf2[COMBUF[0].len2 + i] = GetBufin[1][i];
-				COMBUF[1].len += len;
-				COMBUF[1].len2 += len;
+			BOOL got = GetOverlappedResult(hCom[1],&COMOverlapped[1],&len, FALSE);
+			if (!got) {
+				DWORD err = GetLastError();
+				LogOverlappedError("GetOverlappedResult ThreadFunc[1]", err);
+			}else if(len > 0){
+				len2 = len;
+				// 共有バッファ更新はロックで保護
+				EnterCriticalSection(&COMBUF_CS[1]);
+				if ((COMBUF[1].len + len) < COMMBUFSIZE) {
+					for(i=0;i<len;++i)COMBUF[1].Buf[COMBUF[1].len+i]=GetBufin[1][i];
+					COMBUF[1].len += len;
+				}else{
+				size_t space =(COMMBUFSIZE>COMBUF[1].len)?(COMMBUFSIZE-COMBUF[1].len):0;
+					for(i=0;i<space;++i)COMBUF[1].Buf[(COMBUF[1].len+i)&0x1ffff]=GetBufin[1][i];
+					COMBUF[1].len = COMMBUFSIZE;
+				}
+				
+				if((COMBUF[1].len2+len2)<COMMBUFSIZE){
+					for(i=0;i<len2;++i)COMBUF[1].Buf2[COMBUF[1].len2+i]=GetBufin[1][i];
+		            COMBUF[1].len2 += len2;
+				}else{
+				size_t space2=(COMMBUFSIZE>COMBUF[1].len2)?(COMMBUFSIZE-COMBUF[1].len2):0;
+					for(i=0;i<space2;++i)COMBUF[1].Buf2[(COMBUF[1].len2+i)&0x1ffff]=GetBufin[1][i];
+		            COMBUF[1].len2 = COMMBUFSIZE;
+        		}
+				
 				COMBUF[1].flg++;
+				LeaveCriticalSection(&COMBUF_CS[1]);
 				PostMessage(hogeWnd,WM_READ_END,1,0);/*メインスレッドで処理*/
 			}
+		}else if (RtnParam == WAIT_TIMEOUT) {
+			// タイムアウトは通常ループ継続
 		}else if (RtnParam == WAIT_FAILED) {
-			FormatMessage(
-				FORMAT_MESSAGE_ALLOCATE_BUFFER |
-				FORMAT_MESSAGE_FROM_SYSTEM,
-				NULL,
-				GetLastError(),
-				LANG_USER_DEFAULT,
-				(LPTSTR)&lpMessageBuffer,
-				0,
-				NULL);
+			DWORD err = GetLastError();
+			LogOverlappedError("WaitForSingleObject ThreadFunc[1]", err);
+			Sleep(50);
+		//	FormatMessage(
+		//		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		//		FORMAT_MESSAGE_FROM_SYSTEM,
+		//		NULL,
+		//		GetLastError(),
+		//		LANG_USER_DEFAULT,
+		//		(LPTSTR)&lpMessageBuffer,
+		//		0,
+		//		NULL);
 		//	MessageBox(NULL, lpMessageBuffer, "Hoge", MB_ICONHAND);
 		}
 		ResetEvent(COMOverlapped[1].hEvent);/*イベントは手動リセット*/
@@ -5379,34 +5840,71 @@ DWORD WINAPI ThreadFunc2(LPVOID vdParam) {
 DWORD WINAPI ThreadFunc3(LPVOID vdParam) {
 	unsigned int i;
 //	BOOL ret;
-	DWORD RtnParam,EvParam,len;
+	DWORD RtnParam,EvParam,len,len2;
 	LPTSTR lpMessageBuffer = NULL;
 
-	while(1){
+	//while(1){
+	while (gThreadRun[2].load()) {
 		//データ受信のイベントで待つ
-		std::ignore = ReadFile(hCom[2],GetBufin[2],131072,&EvParam,&COMOverlapped[2]);
+	//	std::ignore = ReadFile(hCom[2],GetBufin[2],131072,&EvParam,&COMOverlapped[2]);
+		BOOL readRet =ReadFile(hCom[2],GetBufin[2],131072,&EvParam,&COMOverlapped[2]);
+		if (!readRet) {
+			DWORD err = GetLastError();
+			if (err != ERROR_IO_PENDING) {
+				LogOverlappedError("ReadFile ThreadFunc[2]", err);
+				Sleep(50); // 過度なループを避ける
+				continue;
+			}
+			// ERROR_IO_PENDING: 正常（完了待ちへ）
+		}
+		
 		/*ReadFileからのイベントオブジェクトシグナルを調べる*/
 		RtnParam = WaitForSingleObject(COMOverlapped[2].hEvent,100);
 		if(RtnParam == WAIT_OBJECT_0){
-			GetOverlappedResult(hCom[2],&COMOverlapped[2],&len, FALSE);
-			if(len > 0){
-				for(i=0;i<len;i++)COMBUF[2].Buf[COMBUF[2].len + i] = GetBufin[2][i];
-				for(i=0;i<len;i++)COMBUF[2].Buf2[COMBUF[2].len2 + i] = GetBufin[2][i];
-				COMBUF[2].len += len;
-				COMBUF[2].len2 += len;
+			BOOL got = GetOverlappedResult(hCom[2],&COMOverlapped[2],&len, FALSE);
+			if (!got) {
+				DWORD err = GetLastError();
+				LogOverlappedError("GetOverlappedResult ThreadFunc[2]", err);
+			}else if(len > 0){
+				len2 = len;
+				// 共有バッファ更新はロックで保護
+				EnterCriticalSection(&COMBUF_CS[2]);
+				if ((COMBUF[2].len + len) < COMMBUFSIZE) {
+					for(i=0;i<len;++i)COMBUF[2].Buf[COMBUF[2].len+i]=GetBufin[2][i];
+					COMBUF[2].len += len;
+				}else{
+				size_t space =(COMMBUFSIZE>COMBUF[2].len)?(COMMBUFSIZE-COMBUF[2].len):0;
+					for(i=0;i<space;++i)COMBUF[2].Buf[(COMBUF[2].len+i)&0x1ffff]=GetBufin[2][i];
+					COMBUF[2].len = COMMBUFSIZE;
+				}
+				if((COMBUF[2].len2+len2)<COMMBUFSIZE){
+					for(i=0;i<len2;++i)COMBUF[2].Buf2[COMBUF[2].len2+i]=GetBufin[2][i];
+		            COMBUF[2].len2 += len2;
+				}else{
+				size_t space2=(COMMBUFSIZE>COMBUF[2].len2)?(COMMBUFSIZE-COMBUF[2].len2):0;
+					for(i=0;i<space2;++i)COMBUF[2].Buf2[(COMBUF[2].len2+i)&0x1ffff]=GetBufin[2][i];
+		            COMBUF[2].len2 = COMMBUFSIZE;
+        		}
+
 				COMBUF[2].flg++;
+				LeaveCriticalSection(&COMBUF_CS[2]);
 				PostMessage(hogeWnd,WM_READ_END,2,0);/*メインスレッドで処理*/
 			}
+		}else if (RtnParam == WAIT_TIMEOUT) {
+			// タイムアウトは通常ループ継続
 		}else if (RtnParam == WAIT_FAILED) {
-			FormatMessage(
-				FORMAT_MESSAGE_ALLOCATE_BUFFER |
-				FORMAT_MESSAGE_FROM_SYSTEM,
-				NULL,
-				GetLastError(),
-				LANG_USER_DEFAULT,
-				(LPTSTR)&lpMessageBuffer,
-				0,
-				NULL);
+			DWORD err = GetLastError();
+			LogOverlappedError("WaitForSingleObject ThreadFunc[2]", err);
+			Sleep(50);
+		//	FormatMessage(
+		//		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		//		FORMAT_MESSAGE_FROM_SYSTEM,
+		//		NULL,
+		//		GetLastError(),
+		//		LANG_USER_DEFAULT,
+		//		(LPTSTR)&lpMessageBuffer,
+		//		0,
+		//		NULL);
 		//	MessageBox(NULL, lpMessageBuffer, "Hoge", MB_ICONHAND);
 		}
 		ResetEvent(COMOverlapped[2].hEvent);/*イベントは手動リセット*/
@@ -5417,34 +5915,71 @@ DWORD WINAPI ThreadFunc3(LPVOID vdParam) {
 DWORD WINAPI ThreadFunc4(LPVOID vdParam) {
 	unsigned int i;
 //	BOOL ret;
-	DWORD RtnParam,EvParam,len;
+	DWORD RtnParam,EvParam,len,len2;
 	LPTSTR lpMessageBuffer = NULL;
 
-	while(1){
+	//while(1){
+	while (gThreadRun[3].load()) {
 		//データ受信のイベントで待つ
-		std::ignore = ReadFile(hCom[3],GetBufin[3],131072,&EvParam,&COMOverlapped[3]);
+	//	std::ignore = ReadFile(hCom[3],GetBufin[3],131072,&EvParam,&COMOverlapped[3]);
+		BOOL readRet =ReadFile(hCom[3],GetBufin[3],131072,&EvParam,&COMOverlapped[3]);
+		if (!readRet) {
+			DWORD err = GetLastError();
+			if (err != ERROR_IO_PENDING) {
+				LogOverlappedError("ReadFile ThreadFunc[3]", err);
+				Sleep(50); // 過度なループを避ける
+				continue;
+			}
+			// ERROR_IO_PENDING: 正常（完了待ちへ）
+		}
+		
 		/*ReadFileからのイベントオブジェクトシグナルを調べる*/
 		RtnParam = WaitForSingleObject(COMOverlapped[3].hEvent,100);
 		if(RtnParam == WAIT_OBJECT_0){
-			GetOverlappedResult(hCom[3],&COMOverlapped[3],&len, FALSE);
-			if(len > 0){
-				for(i=0;i<len;i++)COMBUF[3].Buf[COMBUF[3].len + i] = GetBufin[3][i];
-				for(i=0;i<len;i++)COMBUF[3].Buf2[COMBUF[3].len2 + i] = GetBufin[3][i];
-				COMBUF[3].len += len;
-				COMBUF[3].len2 += len;
+			BOOL got = GetOverlappedResult(hCom[3],&COMOverlapped[3],&len, FALSE);
+			if (!got) {
+				DWORD err = GetLastError();
+				LogOverlappedError("GetOverlappedResult ThreadFunc[3]", err);
+			}else if(len > 0){
+				len2 = len;
+				// 共有バッファ更新はロックで保護
+				EnterCriticalSection(&COMBUF_CS[3]);
+				if ((COMBUF[3].len + len) < COMMBUFSIZE) {
+					for(i=0;i<len;++i)COMBUF[3].Buf[COMBUF[3].len+i]=GetBufin[3][i];
+					COMBUF[3].len += len;
+				}else{
+				size_t space =(COMMBUFSIZE>COMBUF[3].len)?(COMMBUFSIZE-COMBUF[3].len):0;
+					for(i=0;i<space;++i)COMBUF[3].Buf[(COMBUF[3].len+i)&0x1ffff]=GetBufin[3][i];
+					COMBUF[3].len = COMMBUFSIZE;
+				}
+				if((COMBUF[3].len2+len2)<COMMBUFSIZE){
+					for(i=0;i<len2;++i)COMBUF[3].Buf2[COMBUF[3].len2+i]=GetBufin[3][i];
+		            COMBUF[3].len2 += len2;
+				}else{
+				size_t space2=(COMMBUFSIZE>COMBUF[3].len2)?(COMMBUFSIZE-COMBUF[3].len2):0;
+					for(i=0;i<space2;++i)COMBUF[3].Buf2[(COMBUF[3].len2+i)&0x1ffff]=GetBufin[3][i];
+		            COMBUF[3].len2 = COMMBUFSIZE;
+        		}
+
 				COMBUF[3].flg++;
+				LeaveCriticalSection(&COMBUF_CS[3]);
 				PostMessage(hogeWnd,WM_READ_END,3,0);/*メインスレッドで処理*/
 			}
+		}else if (RtnParam == WAIT_TIMEOUT) {
+			// タイムアウトは通常ループ継続
 		}else if (RtnParam == WAIT_FAILED) {
-			FormatMessage(
-				FORMAT_MESSAGE_ALLOCATE_BUFFER |
-				FORMAT_MESSAGE_FROM_SYSTEM,
-				NULL,
-				GetLastError(),
-				LANG_USER_DEFAULT,
-				(LPTSTR)&lpMessageBuffer,
-				0,
-				NULL);
+			DWORD err = GetLastError();
+			LogOverlappedError("WaitForSingleObject ThreadFunc[3]", err);
+			Sleep(50);
+		//	FormatMessage(
+		//		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		//		FORMAT_MESSAGE_FROM_SYSTEM,
+		//		NULL,
+		//		GetLastError(),
+		//		LANG_USER_DEFAULT,
+		//		(LPTSTR)&lpMessageBuffer,
+		//		0,
+		//		NULL);
 		//	MessageBox(NULL, lpMessageBuffer, "Hoge", MB_ICONHAND);
 		}
 		ResetEvent(COMOverlapped[3].hEvent);/*イベントは手動リセット*/
@@ -5455,34 +5990,86 @@ DWORD WINAPI ThreadFunc4(LPVOID vdParam) {
 DWORD WINAPI ThreadFunc5(LPVOID vdParam) {
 	unsigned int i;
 //	BOOL ret;
-	DWORD RtnParam,EvParam,len;
+	DWORD RtnParam,EvParam,len,len2;
 	LPTSTR lpMessageBuffer = NULL;
 
-	while(1){
+	//while(1){
+	while (gThreadRun[4].load()) {
 		//データ受信のイベントで待つ
-		std::ignore = ReadFile(hCom[4],GetBufin[4],131072,&EvParam,&COMOverlapped[4]);
+	//	std::ignore = ReadFile(hCom[4],GetBufin[4],131072,&EvParam,&COMOverlapped[4]);
+		BOOL readRet =ReadFile(hCom[4],GetBufin[4],131072,&EvParam,&COMOverlapped[4]);
+		if (!readRet) {
+			DWORD err = GetLastError();
+			if (err != ERROR_IO_PENDING) {
+				LogOverlappedError("ReadFile ThreadFunc[4]", err);
+				Sleep(50); // 過度なループを避ける
+				continue;
+			}
+			// ERROR_IO_PENDING: 正常（完了待ちへ）
+		}
+		
 		/*ReadFileからのイベントオブジェクトシグナルを調べる*/
 		RtnParam = WaitForSingleObject(COMOverlapped[4].hEvent,100);
 		if(RtnParam == WAIT_OBJECT_0){
-			GetOverlappedResult(hCom[4],&COMOverlapped[4],&len, FALSE);
-			if(len > 0){
-				for(i=0;i<len;i++)COMBUF[4].Buf[COMBUF[4].len + i] = GetBufin[4][i];
-				for(i=0;i<len;i++)COMBUF[4].Buf2[COMBUF[4].len2 + i] = GetBufin[4][i];
-				COMBUF[4].len += len;
-				COMBUF[4].len2 += len;
+			BOOL got = GetOverlappedResult(hCom[4],&COMOverlapped[4],&len, FALSE);
+			if (!got) {
+				DWORD err = GetLastError();
+				LogOverlappedError("GetOverlappedResult ThreadFunc[4]", err);
+			}else if(len > 0){
+				len2 = len;
+				// 共有バッファ更新はロックで保護
+				EnterCriticalSection(&COMBUF_CS[4]);
+				if ((COMBUF[4].len + len) < COMMBUFSIZE) {
+					for(i=0;i<len;++i)COMBUF[4].Buf[COMBUF[4].len+i]=GetBufin[4][i];
+					COMBUF[4].len += len;
+				}else{
+				size_t space =(COMMBUFSIZE>COMBUF[4].len)?(COMMBUFSIZE-COMBUF[4].len):0;
+					for(i=0;i<space;++i)COMBUF[4].Buf[(COMBUF[4].len+i)&0x1ffff]=GetBufin[4][i];
+				//	size_t max_copy = COMMBUFSIZE - COMBUF[4].len;
+				//	if ((size_t)space > max_copy) {
+    			//		space = (int)max_copy;
+				//	}
+				//	for(i=0;i<space;++i) {
+				//		COMBUF[4].Buf[COMBUF[4].len+i] = GetBufin[4][i];
+				//	}
+					COMBUF[4].len = COMMBUFSIZE;
+				}
+				if((COMBUF[4].len2+len2)<COMMBUFSIZE){
+					for(i=0;i<len2;++i)COMBUF[4].Buf2[COMBUF[4].len2+i]=GetBufin[4][i];
+		            COMBUF[4].len2 += len2;
+				}else{
+				size_t space2=(COMMBUFSIZE>COMBUF[4].len2)?(COMMBUFSIZE-(COMBUF[4].len2)):0;
+					for(i=0;i<space2;++i)COMBUF[4].Buf2[(COMBUF[4].len2+i)&0x1ffff]=GetBufin[4][i];
+				//	size_t max_copy = COMMBUFSIZE - COMBUF[4].len2;
+				//	if ((size_t)space2 > max_copy) {
+    			//		space2 = (int)max_copy;
+    			//		space2--;
+				//	}
+				//	for(i=0;i<space2;++i) {
+				//		COMBUF[4].Buf2[COMBUF[4].len2+i] = GetBufin[4][i];
+				//	}
+		            COMBUF[4].len2 = COMMBUFSIZE;
+        		}
+				
 				COMBUF[4].flg++;
+				LeaveCriticalSection(&COMBUF_CS[4]);
 				PostMessage(hogeWnd,WM_READ_END,4,0);/*メインスレッドで処理*/
 			}
+		}else if (RtnParam == WAIT_TIMEOUT) {
+			// タイムアウトは通常ループ継続
 		}else if (RtnParam == WAIT_FAILED) {
-			FormatMessage(
-				FORMAT_MESSAGE_ALLOCATE_BUFFER |
-				FORMAT_MESSAGE_FROM_SYSTEM,
-				NULL,
-				GetLastError(),
-				LANG_USER_DEFAULT,
-				(LPTSTR)&lpMessageBuffer,
-				0,
-				NULL);
+			DWORD err = GetLastError();
+			LogOverlappedError("WaitForSingleObject ThreadFunc[4]", err);
+			Sleep(50);
+		//	FormatMessage(
+		//		FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		//		FORMAT_MESSAGE_FROM_SYSTEM,
+		//		NULL,
+		//		GetLastError(),
+		//		LANG_USER_DEFAULT,
+		//		(LPTSTR)&lpMessageBuffer,
+		//		0,
+		//		NULL);
 		//	MessageBox(NULL, lpMessageBuffer, "Hoge", MB_ICONHAND);
 		}
 		ResetEvent(COMOverlapped[4].hEvent);/*イベントは手動リセット*/
@@ -5496,7 +6083,8 @@ DWORD WINAPI ThreadFunc6(LPVOID vdParam) {
 	Sleep(1000);
 	NET[0].Connect();
 	
-	while(1){
+	//while(1){
+	while (gThreadRun[5].load()) {
 		if(NET[0].IsActive()){
 			len = NET[0].Recv((char *)(COMBUF[5].Buf+COMBUF[5].len));
 			if(len > 0){
@@ -5530,4 +6118,5 @@ DWORD WINAPI ThreadFunc6(LPVOID vdParam) {
 			Sleep(10);
 		}
 	}
+	ExitThread(TRUE);
 }
