@@ -8,14 +8,6 @@
 #include "targetver.h"
 
 #define WIN32_LEAN_AND_MEAN             // Windows ヘッダーから使用されていない部分を除外します。
-#define TLMDATA_NUM 256
-#define COMMBUFSIZE 131072
-#define BUF_SIZE	2048*4
-#define MAX_CLIENTS 5
-//#define LINGBUF_SIZE 37778
-#define LINGBUF_SIZE 37779
-#define SENDBUF_SIZE 4096
-#define RTN_SIZE 100
 // Windows ヘッダー ファイル:
 #include <windows.h>
 
@@ -54,8 +46,6 @@
 #include <crtdbg.h>
 #include <Ws2def.h>
 #include <winsock.h>
-//#include <tchar.h>
-//#include <setupapi.h>
 #include <wingdi.h>
 #include <cstdio>
 #include <cwchar> // mbstowcs_s
@@ -79,6 +69,17 @@
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
+#define COMMBUFSIZE 131072
+#define BUF_SIZE	2048*4
+#define POLY 0x8408
+#define TLMDATA_NUM 256
+#define MAX_CLIENTS 5
+#define LINGBUF_SIZE 37778
+//#define LINGBUF_SIZE 37779
+#define TLMDATA_NUM 256
+#define SENDBUF_SIZE 4096
+#define RTN_SIZE 100
+
 enum maker_t {
     MAKER_DUMMY = 0,
     MAKER_YOKOKAWA,
@@ -96,14 +97,9 @@ enum maker_t {
 using namespace std;
 
 // TODO: プログラムに必要な追加ヘッダーをここで参照してください。
-/*テレメトリフォーマット構造体*/
-struct tlm_part{
-	int major;
-	long minor;
-	int mask;
-	int shift;
-};
+
 /*----USB シリアルポートパラメータ列挙構造体---------------------*/
+#if 1
 struct usb_serial_param{
 	char port[256] = {0};
 	int port_num;
@@ -111,6 +107,24 @@ struct usb_serial_param{
 	int pid;
 	int delimiter = 0;
 	TCHAR ser[18] = {0};
+};
+#endif
+struct serial_param{
+	int no;
+	char comm_string[32] = {0};
+	long BaudRate;
+	int modem_flg;
+	int Init;
+	int delimiter = 0;
+	unsigned char ByteSize;
+	unsigned char Parity;
+	unsigned char fParity;
+	unsigned char StopBits;
+	unsigned char newline;
+	int USB;
+	int VID;
+	int PID;
+	TCHAR SERIAL[65];
 };
 /*---計測器コマンド構造体---*/
 struct mcmd{
@@ -139,10 +153,8 @@ struct measurement_device{
 	std::string serial_port;
 	int serial_port_num = 0;
 	int serial_baud = 0;
-//	char * VISA_Addr = {0};
-	std::string VISA_Addr;
-//	int lan_addr[4] = {0};
-//  long lan_addr[4] = {0,0,0,0};
+	char * VISA_Addr = {0};
+//	std::string VISA_Addr;
     int lan_addr[4] = {0,0,0,0};
 	int lan_port = 0;
 	int gpib_port = 0;
@@ -172,6 +184,14 @@ struct usbhid_dev{
 struct ftdi_dev{
 	FT_HANDLE ftHandle;       // USB handler
 	int cnt;
+};
+
+/*テレメトリフォーマット構造体*/
+struct tlm_part{
+	int major;
+	long minor;
+	int mask;
+	int shift;
 };
 
 struct tlm_struct{

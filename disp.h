@@ -36,9 +36,9 @@ int NetConnect(lua_State * );
 int NetDisConnect(lua_State * );
 int NetSend(lua_State * );
 int NetWaitRecv(lua_State *);
+int DeviceSeq(lua_State * );
 int NetRecv(lua_State * );
 int NetRecv2(lua_State * );
-int DeviceSeq(lua_State * );
 int RegRead(lua_State * );
 int RegWrite(lua_State * );
 int CRC16(lua_State * );
@@ -165,7 +165,7 @@ struct comm_data2{
 	int modem_flg;
 	int Init;
 };
-
+#if 0
 struct serial_param{
 	int no;
 	char comm_string[32] = {0};
@@ -183,7 +183,7 @@ struct serial_param{
 	int PID;
 	TCHAR SERIAL[65];
 };
-
+#endif
 /*---受信データバッファ構造体--*/
 struct rcv_data2{
 	unsigned char	buf[1024];

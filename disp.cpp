@@ -8,11 +8,8 @@
 #include <thread>
 
 void scroll2(unsigned int);
-//void scroll4(unsigned int);
 void HexDataREP2(HWND);
-//void HexDataREP4(HWND);
 void DisplayParam2(HWND hWnd);
-//void DisplayParam4(HWND hWnd);
 
 int HDS2102S_getwaveform2(lua_State * );
 int HDS2102S_getwavebmp2(lua_State * );
@@ -51,13 +48,6 @@ int GetC(lua_State * L);
 int GetAddr(lua_State * );
 
 struct rcv_data2 SND[6];
-//struct comm_data2 	COMMPARAM;
-//struct serial_param2 COMMPARAM;
-//struct ComReadBuf3 COMBUF;
-//struct dispframe2 CDSP2;
-//vector<reg_struct> REG;
-//map<int,char[32]> PortList;
-
 vector<reg_main> REG;
 struct EXBITMAPINFO BmInfo;
 BITMAPFILEHEADER    BmFileHed;
@@ -141,7 +131,6 @@ const static struct ScaleS Scalet[] = {{"10.0mV",0.01},{"20.0mV",0.02},{"50.0mV"
 	{"20.0V" ,20.0},{"50.0V" ,50.0},{"100V"  ,100.0},{"200V"  ,200.0},{"500V"  ,500.0}};
 
 struct DataView {
-//	double * DATA;
 	double scale;
 	double shift;
 	int len;
@@ -233,7 +222,6 @@ void bmpgraph(void)
 	for(j=0;j<7;j++){
 		for(i=0;i<300;i++){
 			if(i%5 == 0){
-			//	pBit[((25+(25*j))*320)+10+i] = 210;//CYAN
 				pBit[((20+25+(25*j))*320)+10+i] = 210;//CYAN
 			}
 		}
@@ -269,7 +257,6 @@ void bmpdraw(double * DATA1,struct DataView DV1, double * DATA2, struct DataView
 	shift2 = (120 + DV2.shift);         //-50 
 
 	bmpgraph();
-//	for(i=0;i<300;i++){
 	for(i=0;i<DV1.len;i++){
 		ch1 = ((scale1*DATA1[i])*25);  //((5.0/25)*5.0)*25=25 
 		if((shift1+ch1) > 220)ch1 = 220 - shift1;
@@ -283,8 +270,6 @@ void bmpdraw(double * DATA1,struct DataView DV1, double * DATA2, struct DataView
 	for(n=0;n<8;n++){
 		for(m=0;m<8;m++){
 			if(((MFont[96][n] >> m) & 0x01) == 1){
-			//	pBit[(320*(239 - (int)shift1 - n +4))-8+(8-m)] = 35;//YEROW;
-			//	pBit[(320*(239 - (int)shift2 - n +4))-8+(8-m)] = 180;//BLUE;
 				pBit[(320*((int)shift1 - n +4))+(8-m)] = 35;//YEROW;
 				pBit[(320*((int)shift2 - n +4))+(8-m)] = 180;//BLUE;
 			}
@@ -320,7 +305,6 @@ int bmpprint(std::string text,int x,int y)
 			for(n=0;n<8;n++){
 				for(m=0;m<8;m++){
 					if(((MFont[(char(text[j]) - ' ')][n] >> m) & 0x01) == 1){
-				//	if(((MFont[16][n] >> m) & 0x01) == 1){
 						pBit[(320*(239 - y - n))+x-8+(j*8)+(8-m)] = 215;
 					}
 				}
@@ -346,13 +330,8 @@ int HDS2102S_getwaveform2(lua_State * L)
 	char Buf2[1030];
 	char dummy[40];
 	size_t sp1,sp2,sp3,sp4,sp5,sp6,sp7,sp8;
-//	size_t len2;
-//	errno_t error;
-//	FILE * F;
 
-//	char * filename = (char *)lua_tolstring(L, 1,&len2);
 	char * filename = (char *)lua_tostring(L, 1);
-//	error = fopen_s(&F,filename,"wt");
 
 	FileRAII file(filename, "wt");
 	FILE * F = file.get();
@@ -424,12 +403,8 @@ int HDS2102S_getwaveform2(lua_State * L)
 			sp5 = SBuf4.find("OFFSET");
 			sp6 = sp5 + 6;
 			std::string SBuf5 = SBuf4.substr(sp6+2);
-		//	std::string SBuf5 = SBuf0.substr(sp6+3,sp6+6);
-		//	SBuf5 = SBuf5.erase(sp6+6);
 			for(i=0;i<10;i++){
-			//	if(SBuf5[i] == 44){
 				if(SBuf5[i] == ','){//0x22 "
-				//	SBuf6 = SBuf5.erase(i);
 					SBuf6 = SBuf5.substr(0,i);//OFFSET:0
 					break;
 				}
@@ -439,13 +414,9 @@ int HDS2102S_getwaveform2(lua_State * L)
 			std::string SBuf7 = SBuf4.substr(sp6+3,SBuf4.size());
 			sp7 = SBuf7.find("OFFSET");
 			sp8 = sp7 + 6;
-		//	std::string SBuf8 = SBuf7.substr(sp8+3,sp8+6);
 			std::string SBuf8 = SBuf7.substr(sp8+2);
-		//	SBuf8 = SBuf8.erase(sp8+6);
 			for(i=0;i<10;i++){
-			//	if(SBuf8[i] == 44){
 				if(SBuf8[i] == ','){
-				//	SBuf9 = SBuf8.erase(i);
 					SBuf9 = SBuf8.substr(0,i);//OFFSET:0
 					break;
 				}
@@ -466,9 +437,6 @@ int HDS2102S_getwaveform2(lua_State * L)
 				}
 				k = (((double)j / 6400) - (offset1/25)) * scale1;
 				sprintf_s(dummy,40, "%f,",k);
-			//	ftoa(dummy,j,10);
-			//	dummy[strlen(dummy)] = ',';
-			//	dummy[strlen(dummy)+1] = 0;
 				fwrite(dummy, 1, strlen(dummy), F);
 			}
 
@@ -481,10 +449,7 @@ int HDS2102S_getwaveform2(lua_State * L)
 						j = -(65535 - j);
 					}
 					k = (((double)j / 6400) - (offset1/25)) * scale1;
-				//	ftoa(dummy,j,10);
 					sprintf_s(dummy,40, "%f,",k);
-				//	dummy[strlen(dummy)] = ',';
-				//	dummy[strlen(dummy)+1] = 0;
 					fwrite(dummy, 1, strlen(dummy), F);
 				}
 				Sleep(1);
@@ -504,9 +469,6 @@ int HDS2102S_getwaveform2(lua_State * L)
 				}
 				k = (((double)j / 6400) - (offset2/25)) * scale2;
 				sprintf_s(dummy,40, "%f,",k);
-			//	ftoa(dummy,j,10);
-			//	dummy[strlen(dummy)] = ',';
-			//	dummy[strlen(dummy)+1] = 0;
 				fwrite(dummy, 1, strlen(dummy), F);
 			}
 
@@ -520,9 +482,6 @@ int HDS2102S_getwaveform2(lua_State * L)
 					}
 					k = (((double)j / 6400) - (offset2/25)) * scale2;
 					sprintf_s(dummy,40, "%f,",k);
-				//	ftoa(dummy,j,10);
-				//	dummy[strlen(dummy)] = ',';
-				//	dummy[strlen(dummy)+1] = 0;
 					fwrite(dummy, 1, strlen(dummy), F);
 				}
 				Sleep(1);
@@ -531,21 +490,12 @@ int HDS2102S_getwaveform2(lua_State * L)
 			}
 
 			fwrite("\n", 1, 1, F);
-		//	fclose(F);
-			// FileRAII のデストラクタで自動的に fclose される
 		}else{
-		//	fclose(F);
-			// FileRAII のデストラクタで自動的に fclose される
 			r = 1;
 		}
 	}else{
 		r = 1;
 	}
-
-//	if(F != NULL){
-//		fclose(F);
-//	}
-	//	DispStrP("WaveformData " .. datetime)
 	lua_pop(L, lua_gettop(L));
    	lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -573,13 +523,10 @@ int HDS2102S_getwavebmp2(lua_State * L)
 	double DATA1[800];
 	double DATA2[800];
 	size_t sp1,sp2,sp7,sp8;
-//	errno_t error;
-//	FILE * F;
 	struct DataView DV1;
 	struct DataView DV2;
 
 	char * filename = (char *)lua_tostring(L, 1);
-//	error = fopen_s(&F,filename,"wb");
 	FileRAII file(filename, "wt");
 	FILE * F = file.get();
 
@@ -626,7 +573,6 @@ int HDS2102S_getwavebmp2(lua_State * L)
 			std::string SBuf17 = SBuf15.substr(sp2+3);
 			std::string SBuf18;
 			for(i=0;i<10;i++){
-			//	if(SBuf17[i] == 34){//0x22 "
 				if(SBuf17[i] == 'X'){//0x22 "
 					SBuf18 = SBuf17.substr(0,i);//PROBE:10X
 					break;
@@ -669,7 +615,6 @@ int HDS2102S_getwavebmp2(lua_State * L)
 			std::string SBuf23 = SBuf19.substr(sp2+3);
 			std::string SBuf24;
 			for(i=0;i<10;i++){
-			//	if(SBuf23[i] == 34){//0x22 "
 				if(SBuf23[i] == 'X'){//0x22 "
 					SBuf24 = SBuf23.substr(0,i);//PROBE:10X
 					break;
@@ -801,7 +746,6 @@ int HDS2102S_getwavebmp2(lua_State * L)
 			n = 0;
 			len2 = Buf[0]|(((int)Buf[1])<<8);
 			for(i=4;i<(len-2);i+=2){
-			//	j = (Buf[i+2]<<8)|Buf[i+1];
 				j = (((int)Buf[i+1])<<8)+Buf[i];
 				if(j > 32767){
 					j = -(65535 - j);
@@ -893,7 +837,6 @@ int HDS2102S_getwavebmp2(lua_State * L)
 			bmpprint(TSW,10,5);
 			bmpprint(TSCALE,50,5);
 			bmpprint(SRATE,140,225);
-		//	bmpprint(TCH,215,225);
 			bmpprint(TCH + ':' + TCP,215,225);
 			bmpprint(TED,265,225);
 			bmpprint(TLV,275,225);
@@ -902,17 +845,9 @@ int HDS2102S_getwavebmp2(lua_State * L)
 		}else{
 			r = 1;
 		}
-//		fclose(F);
 	}else{
-//		fclose(F);
 		r = 1;
 	}
-
-//	if(F != NULL){
-//		fclose(F);
-//	}
-
-	//	DispStrP("WaveformData " .. datetime)
 	lua_pop(L, lua_gettop(L));
    	lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -930,10 +865,7 @@ void HDS2102S_getwaveform3(char * filename)
 	char Buf2[1030];
 	char dummy[40];
 	size_t sp1,sp2,sp3,sp4,sp5,sp6,sp7,sp8;
-//	errno_t error;
-//	FILE * F;
 
-//	error = fopen_s(&F,filename,"wt");
 	FileRAII file(filename, "wt");
 	FILE * F = file.get();
 
@@ -974,14 +906,12 @@ void HDS2102S_getwaveform3(char * filename)
 
 		for(i=0;i<7;i++){
 			if(SBuf10[i] == 34){
-			//	SBuf12 = SBuf10.erase(i);
 				SBuf12 = SBuf10.substr(0,i);
 				break;
 			}
 		}
 		for(i=0;i<7;i++){
 			if(SBuf11[i] == 34){
-			//	SBuf13 = SBuf11.erase(i);
 				SBuf13 = SBuf11.substr(0,i);
 				break;
 			}
@@ -1004,13 +934,9 @@ void HDS2102S_getwaveform3(char * filename)
 
 		sp5 = SBuf4.find("OFFSET");
 		sp6 = sp5 + 6;
-	//	std::string SBuf5 = SBuf0.substr(sp6+3,sp6+6);
 		std::string SBuf5 = SBuf0.substr(sp6+2);
-	//	SBuf5 = SBuf5.erase(sp6+6);
 		for(i=0;i<10;i++){
-		//	if(SBuf5[i] == 44){
 			if(SBuf5[i] == ','){
-			//	SBuf6 = SBuf5.erase(i);
 				SBuf6 = SBuf5.substr(0,i);
 				break;
 			}
@@ -1020,13 +946,9 @@ void HDS2102S_getwaveform3(char * filename)
 		std::string SBuf7 = SBuf4.substr(sp6+3,SBuf4.size());
 		sp7 = SBuf7.find("OFFSET");
 		sp8 = sp7 + 6;
-	//	std::string SBuf8 = SBuf7.substr(sp8+3,sp8+6);
 		std::string SBuf8 = SBuf7.substr(sp8+2);
-	//	SBuf8 = SBuf8.erase(sp8+6);
 		for(i=0;i<10;i++){
-		//	if(SBuf8[i] == 44){
 			if(SBuf8[i] == ','){
-			//	SBuf9 = SBuf8.erase(i);
 				SBuf9 = SBuf8.substr(0,i);
 				break;
 			}
@@ -1047,9 +969,6 @@ void HDS2102S_getwaveform3(char * filename)
 			}
 			k = (((double)j / 6400) - (offset1/25)) * scale1;
 			sprintf_s(dummy,40, "%f,",k);
-		//	ftoa(dummy,j,10);
-		//	dummy[strlen(dummy)] = ',';
-		//	dummy[strlen(dummy)+1] = 0;
 			fwrite(dummy, 1, strlen(dummy), F);
 		}
 
@@ -1062,10 +981,7 @@ void HDS2102S_getwaveform3(char * filename)
 					j = -(65535 - j);
 				}
 				k = (((double)j / 6400) - (offset1/25)) * scale1;
-			//	ftoa(dummy,j,10);
 				sprintf_s(dummy,40, "%f,",k);
-			//	dummy[strlen(dummy)] = ',';
-			//	dummy[strlen(dummy)+1] = 0;
 				fwrite(dummy, 1, strlen(dummy), F);
 			}
 			Sleep(1);
@@ -1085,9 +1001,6 @@ void HDS2102S_getwaveform3(char * filename)
 			}
 			k = (((double)j / 6400) - (offset2/25)) * scale2;
 			sprintf_s(dummy,40, "%f,",k);
-		//	ftoa(dummy,j,10);
-		//	dummy[strlen(dummy)] = ',';
-		//	dummy[strlen(dummy)+1] = 0;
 			fwrite(dummy, 1, strlen(dummy), F);
 		}
 
@@ -1101,9 +1014,6 @@ void HDS2102S_getwaveform3(char * filename)
 				}
 				k = (((double)j / 6400) - (offset2/25)) * scale2;
 				sprintf_s(dummy,40, "%f,",k);
-			//	ftoa(dummy,j,10);
-			//	dummy[strlen(dummy)] = ',';
-			//	dummy[strlen(dummy)+1] = 0;
 				fwrite(dummy, 1, strlen(dummy), F);
 			}
 			Sleep(1);
@@ -1112,9 +1022,7 @@ void HDS2102S_getwaveform3(char * filename)
 		}
 
 		fwrite("\n", 1, 1, F);
-//		fclose(F);
 	}
-//	DispStrP("WaveformData " .. datetime)
 }
 
 unsigned short CalCRC_CMD(unsigned short len, unsigned char bufp[])
@@ -1309,9 +1217,7 @@ void send_scroll2(unsigned int kai)
 					}
 					sRtnPos[sFstN] = sstpoint;
 				}
-		//		sRtnN++;
 			}
-		//	sRtnPos[sRtnN] = sedpoint;
 			sRtnPos[sFstN] = sstpoint;
 		}
 	}
@@ -1574,8 +1480,8 @@ int DispStrP(lua_State *L)
 			}
 			m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
 			if(m == strlen(&frmm[lnpoint])){//ASCII
-			//	frm_U[RtnN] = 0;
-				frm_U[RtnN] = (Display_flg & 0x01);
+				frm_U[RtnN] = 0;
+			//	frm_U[RtnN] = (Display_flg & 0x01);
 			}else{
 				frm_U[RtnN] = 2;
 			}
@@ -1642,7 +1548,6 @@ int DispStrP(lua_State *L)
 			if(stpoint > LINGBUF_SIZE){
 				stpoint = 0;
 			}
-#if 1
 			m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
 			if((long)n >= ws){
 			//	m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
@@ -1670,7 +1575,6 @@ int DispStrP(lua_State *L)
 				
 				lnpoint = lnpoint+n+2;
 			}				
-#endif
 			if(retcnt >= ((hs*4)+(3-wh)-1)) {
 				scroll2(1);			//収まるようにスクロール
 				retcnt--;
@@ -1740,15 +1644,16 @@ void HexDataREP2(HWND hWnd)
 	unsigned char line[2000] = {0};	//バイナリ>キャラクタ変換用バッファ
     size_t ret;
 	int i,j,k,n,ws,m,p;
-	int hs = ((WSIZE_HEIGHT-80)/75);
-	int wh = FIXParam_Cnt/(int)((WSIZE_WIDTH-2)/135);
-	int vs = (((((WSIZE_WIDTH-12)/8)-2)/4)*3);//48
+	int j2,n2,n3;
 	if(WSIZE_WIDTH<28){
 		WSIZE_WIDTH = 28;
 		ws = 4;
 	}else{
 		ws = ((WSIZE_WIDTH-12)/8)-1;
 	}
+	int vs = (((((WSIZE_WIDTH-12)/8)-2)/4)*3);//48
+	int hs = ((WSIZE_HEIGHT-80)/75);
+	int wh = FIXParam_Cnt/(int)((WSIZE_WIDTH-2)/135);
 	WCHAR * Disp = new WCHAR[ws+1];
 
 	hdc = GetDC(hWnd);
@@ -1771,31 +1676,37 @@ void HexDataREP2(HWND hWnd)
 			Disp[ws] = 0;
 			TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 		}else if(frm_U[j] == 1){//HEX
-			if((RtnPos[j]!=-1)&&(frmm[RtnPos[j]] != 0)){
-				for(n=0;n<vs;n++){
-					if(frmm[RtnPos[j]+n] != 0){
-						line[n] = frmm[RtnPos[j]+n];
-					}else{
-						line[n] = 0x20;
-					}
-	 				if(n%3 == 0){
-					//	line[vs+1+(n/3)] = charset2(frmm[RtnPos[j]+(n/3)]);
-						line[vs+(n/3)] = Incharset2((unsigned char *)(frmm+RtnPos[j]+n));
-					} //アスキー表示も右端におまけする
-				}
-				for(i=n+1;i<vs+1;i++)line[i] = 0x20;
-			//	line[n+1] = 0x20;
-			//	line[n+1+(vs/3)] = 0;
-				line[vs+2+(n/3)] = 0;
-				const char* source = (const char*)&line;
-			   	if (source != nullptr) {
-					mbstowcs_s(&ret,Disp,ws,source,ws-1);
-				}
-				n = (int)(wcslen(Disp));
-				for(i=n;i<ws;i++)Disp[i] = L' ';
+			j2 = j;
+			n3 = 0;
+			if((RtnPos[j2+1]!=-1)&&(RtnPos[j2]!=-1)){
+				n2 = RtnPos[j2+1]-RtnPos[j2];
+				if(n2 < vs)n2 = vs;
 			}else{
-				for(i=0;i<ws;i++)Disp[i] = L' ';
+				n2 = vs;
 			}
+			for(n=0;n<(vs+2+(vs/3));n++)line[n] = 0;
+			for(n=0;n<n2;n++){
+				if((RtnPos[j2]!=-1)&&(frmm[RtnPos[j2]+n] != 0)){
+					line[n3] = frmm[RtnPos[j2]+n];
+ 					if(n3%3 == 0){
+						line[vs+1+(n3/3)]
+							= Incharset2((unsigned char *)(frmm+RtnPos[j2]+n));
+					} //アスキー表示も右端におまけする
+					n3++;
+				}
+			}
+			while(n3 < vs){
+				line[n3] = 0x20;
+				n3++;
+			}
+			line[vs] = 0x20;
+			line[vs+1+(vs/3)] = 0;
+			const char* source = (const char*)&line;
+		   	if (source != nullptr) {
+				mbstowcs_s(&ret,Disp,ws,source,ws-1);
+			}
+			n = (int)(wcslen(Disp));
+			for(i=n;i<ws;i++)Disp[i] = L' ';
 			Disp[ws] = 0;
 			TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 		}else{//UTF-8
@@ -1870,7 +1781,6 @@ void HexDataREP2(HWND hWnd)
     for(k=0;k<hs;k++){			//6行
 		j = sFstN + k;
 		if(j > RTN_SIZE)j -= RTN_SIZE;
-	//	if((sRtnPos[j]!=-1)&&(sfrmm[sRtnPos[j]] != 0)){
 		if(sRtnPos[j]!=-1){
 			Disp[0] = '>';
 			Disp[1] = 0;
@@ -1884,7 +1794,6 @@ void HexDataREP2(HWND hWnd)
 				if(p > (ws/3))p = (ws/3);
 				m = 0;
 				line[0] = 0;
-			//	for(i=sRtnPos[j];i<(sRtnPos[n]-1);i++){
 				for(i=sRtnPos[j];i<sRtnPos[j]+p;i++){
     				ltohex2((unsigned char)(sfrmm[i]),&line[(m*3)],2);
         			line[(m*3)+2] = 0x20;		//2文字ごとに空白文字を入れて見やすく
@@ -1905,13 +1814,11 @@ void HexDataREP2(HWND hWnd)
 			i = (int)(wcslen(Disp));
 			for(n=i;n<(ws-1);n++)Disp[n] = L' ';
 			Disp[ws] = 0;
-		//	TextOutW(hdc,4,(hs*60)+4+(k*15),Disp,ws-1);
 			TextOutW(hdc,4,((hs*4)*15)+((wh+1)*30)+4+(15*k),Disp,ws-1);
 		}
     }
 	
     SelectObject(hdc,hNewFont);
-//  DeleteObject(hFont);
 	ReleaseDC(hWnd,hdc);
 	delete[] Disp;
 	Disp = NULL;
@@ -1921,10 +1828,8 @@ void DisplayParam2(HWND hWnd)
 {
 	HDC		   hdc;	//ハンドル
 	hdc = GetDC(hWnd);
-//	WCHAR * Disp = new WCHAR[((WSIZE_WIDTH-12)/8)+1];
 	HFONT hFont;
     size_t ret;
-//	int ws = ((WSIZE_WIDTH-12)/8)-1;
 	int wh = (WSIZE_WIDTH-2)/135;
 	int ch,ws;
 	if (WSIZE_WIDTH < 332) {
@@ -1935,7 +1840,6 @@ void DisplayParam2(HWND hWnd)
 	}
 	WCHAR* Disp = new WCHAR[ws+1];
 
-//  hFont = (HFONT)SelectObject(hdc, hDispFont);
     hFont = (HFONT)SelectObject(hdc, hUFont);
 	for(ch = 0;ch < FIXParam_Cnt;ch++){
 		mbstowcs_s(&ret,Disp,32,CDSP.str_Name[ch],32);
@@ -1944,7 +1848,6 @@ void DisplayParam2(HWND hWnd)
 		TextOutW(hdc,(int(ch%wh))*135+2,(int(ch/wh))*30+15,Disp,(int)wcslen(Disp));
 	}
     SelectObject(hdc,hNewFont);
-//  DeleteObject(hFont);
 	ReleaseDC(hWnd,hdc);
 	delete[] Disp;
 	Disp = NULL;
@@ -2145,7 +2048,6 @@ int SerialInit(lua_State * L)
 	char testcomm_string2[32] ={0};
 	int MDEVch = 0;	
 	int ch = (int)lua_tonumber(L, 1);
-//	int Port = (int)lua_tonumber(L, 2);
 	long baud = (long)lua_tonumber(L, 3);
 	LPTSTR lpMessageBuffer = NULL;	
 	DWORD dwID;
@@ -2175,11 +2077,8 @@ int SerialInit(lua_State * L)
 			}
 		}else{
 			for(i=0;i<MDEV.size();i++){
-			//	if(!(strcmp(MDEV[i].name,Buf))){
 				if(!(strcmp(MDEV[i].name.c_str(),Buf))){
-				//	if(MDEV[i].serial_port != NULL){
 					if(MDEV[i].serial_port.size() != 0){
-					//	sprintf_s(testcomm_string,MDEV[i].serial_port);
 						sprintf_s(testcomm_string,MDEV[i].serial_port.c_str());
 						delimiter = MDEV[i].delimiter;
 						MDEVch = i;
@@ -2199,7 +2098,6 @@ int SerialInit(lua_State * L)
 		}else{
 			strcpy_s(COMMPARAM[ch].comm_string,16,testcomm_string);
 			COMMPARAM[ch].BaudRate = baud;
-		//	COMMPARAM[ch].newline = delimiter;
 			if(MDEVch != 0){
 				COMMPARAM[ch].no = ch;
 				COMMPARAM[ch].fParity = 0;
@@ -2245,7 +2143,7 @@ int SerialInit(lua_State * L)
 					MessageBoxW(NULL, lpMessageBuffer, L"Hoge", MB_ICONHAND);
 			}
 		}
-		if(hCom){
+		if(hCom[ch]){
 			COMMPARAM[ch].Init = 1;
 			r = 0;
 		}else{
@@ -2349,7 +2247,6 @@ int SerialSend(lua_State * L)
 	unsigned int r;
 	int i,j,len,ch;
 	LPDWORD lenR = 0;
-//	size_t len2;
 	ch = 0;
 	char Buf2[4] = {0};
 	
@@ -2358,12 +2255,10 @@ int SerialSend(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				if(MDEV[i].init){
 					for(j=0;j<10;j++){
-					//	if(!(strcmp(COMMPARAM[ch].comm_string,MDEV[i].serial_port))){
-						if(!(strcmp(COMMPARAM[ch].comm_string,MDEV[i].serial_port.c_str()))){
+					if(!(strcmp(COMMPARAM[ch].comm_string,MDEV[i].serial_port.c_str()))){
 							ch = j;
 						}
 					}
@@ -2373,7 +2268,6 @@ int SerialSend(lua_State * L)
 	}
 	char * Buf = (char *)lua_tostring(L, 2);
 	len = (int)lua_tonumber(L, 3);
-//	if(len > len2)len = (int)len2;
 
 	for(i=0;i<len;i++)SND[ch].buf[i] = (unsigned char)Buf[i];
 	SND[ch].len = len;
@@ -2419,7 +2313,6 @@ int SerialWaitRecv(lua_State * L)
 	char * Buf = (char *)lua_tolstring(L, 2,&len2);
 	int timeout = (int)lua_tonumber(L, 2);
 	
-//	while((COMBUF[ch].len2 == 0)&&(timeout > 0)) {
 	while((r == 0)&&(timeout > 0)) {
 		if (COMBUF[ch].len2>0) {	//何かComから受け取ったなら
 			for(i=0;i<COMBUF[ch].len2;i++)Buf2[i] = COMBUF[ch].Buf2[i];
@@ -2433,7 +2326,6 @@ int SerialWaitRecv(lua_State * L)
 		}
 		Sleep(1000);
 		timeout--;
-	//	if(timeout == 0)r = 1;
 	}
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
@@ -2445,11 +2337,7 @@ int SerialRecv(lua_State * L)
 {
 	unsigned int r = 0;
 	int len = 0;
-//	int i;
-//	r = 0;
-//	size_t len2;
 	int ch = (int)lua_tonumber(L, 1);
-//	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 2, &len2);
 
 	// 受信済みデータがあれば長さを取得（データは COMBUF[ch].Buf2 に保持）
 	if (COMBUF[ch].len2 > 0) {
@@ -2457,15 +2345,6 @@ int SerialRecv(lua_State * L)
 	} else {
 		r = 0;
 	}
-//	if (COMBUF[ch].len2>0) {	//何かComから受け取ったなら
-	//	if(len2<COMBUF[ch].len2)COMBUF[ch].len2 = (long)len2;
-//		r = COMBUF[ch].len2;
-	//	if(COMMBUFSIZE<COMBUF[ch].len2)COMBUF.len2 = COMMBUFSIZE;
-//		for(i=0;i<COMBUF[ch].len2;i++)Buf[i] = COMBUF[ch].Buf2[i];
-//	}else{
-//		r = 0;
-//	}
-//	r = 1;
 	COMBUF[ch].Buf2[0] = 0;
 	COMBUF[ch].len2 = 0;
     // 結果をスタックに戻す
@@ -2477,7 +2356,6 @@ int SerialRecv(lua_State * L)
 	} else {
 		lua_pushlstring(L, "", 0);
 	}
-//	lua_pushlstring (L,(char *)Buf,r);
     return 2; // 戻り値の数を返す
 }
 /*--------------------------------------------------------------------------------*/
@@ -2532,7 +2410,6 @@ int HIDSend(lua_State * L)
 	int i,j,ch,len;
 	ch = 0;
 	int data_len=1;
-//	char Buf2[4] = {0};
 	unsigned char Buf2[512] = {0};
 	size_t len2;
 
@@ -2541,7 +2418,6 @@ int HIDSend(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -2551,37 +2427,24 @@ int HIDSend(lua_State * L)
 			}
 		}
 	}
-//	unsigned char * Buf = (unsigned char *)lua_tostring(L, 2);
 	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 2, &len2);
-//	char * Buf = (char *)lua_tostring(L, 2);
 	len = (int)lua_tonumber(L, 3);
-//	strcpy_s((char *)Buf2,512,(char *)Buf);
    	strcpy_s((char *)Buf2,sizeof(Buf2),(char *)Buf);
 	if(len2<len)len = (int)len2;
 	if(len>509)len = 509;
 	switch(MDEV[UHDEV[ch].MDEV_num].delimiter){
 		case 3:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = '\n';
-		//	Buf2[2] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[len] = '\r';
 			Buf2[len+1] = '\n';
 			Buf2[len+2] = 0;
 			len+=2;
 			break;
 		case 2:
-		//	Buf2[0] = '\n';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[len] = '\n';
 			Buf2[len+1] = 0;
 			len++;
 			break;
 		case 1:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[len] = '\r';
 			Buf2[len+1] = 0;
 			len++;
@@ -2590,21 +2453,8 @@ int HIDSend(lua_State * L)
 			Buf2[len] = 0;
 			break;
 	}
-//  uint8_t tlen = (uint8_t)strlen((char *)Buf);
-//  if(Buf[len-1] != '\n'){
-//  if((Buf[len-1] != '\n')&&(Buf[len-1] != '?')){
-//		strcpy_s((char *)Buf2,512,(char *)Buf);
-	//	Buf2[len] = '\n';
-//		Buf2[len] = 0;
-//		Buf2[len+1] = 0;
-	//	len++;
-//	libusb_bulk_transfer(UHDEV[ch].handle, LIBUSB_ENDPOINT_OUT|1, Buf2, len,&data_len, 1000);
-//		libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT,Buf2, len,&data_len, 1000);
-//	}else{
-//	libusb_bulk_transfer(UHDEV[ch].handle, LIBUSB_ENDPOINT_OUT|1, Buf, len,&data_len, 1000);
 	if(UHDEV.size() > ch){
 		if(UHDEV[ch].handle != NULL){
-	//	libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT, Buf, len,&data_len, 1000);
 		libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT, Buf2, len,&data_len, 1000);
 		r = 1;
 		}else{
@@ -2613,14 +2463,6 @@ int HIDSend(lua_State * L)
 	}else{
 		r = 0;
 	}
-//  uint8_t bmReqType = 32 + 1;// the request type (direction of transfer)
-//  uint8_t bmReqType = 0x20 + 0x01;// the request type (direction of transfer)
-//  uint8_t bmReqType = 0xC0 + 0x00;// the request type (direction of transfer)
-//  uint8_t bReq = 1;// the request field for this packet
-//  uint16_t wVal = 0x300;// the value field for this packet
-//  uint16_t wIndex = 0x400;// the index field for this packet
-//	libusb_control_transfer(UHDEV[ch].handle,
-//			bmReqType,bReq,wVal,wIndex,(unsigned char *)Buf,tlen,1000);
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
@@ -2633,7 +2475,6 @@ int HIDSendS(lua_State * L)
 	int i,j,ch;
 	ch = 0;
 	int data_len=1;
-//	char Buf2[4] = {0};
 	unsigned char Buf2[512] = {0};
 	size_t len2;
 
@@ -2642,7 +2483,6 @@ int HIDSendS(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -2653,36 +2493,23 @@ int HIDSendS(lua_State * L)
 		}
 	}
 	char * Buf = (char *)lua_tolstring(L, 2, &len2);
-//	char * Buf = (char *)lua_tostring(L, 2);
-//  uint8_t tlen = (uint8_t)strlen(Buf);
     int tlen = (int)strlen(Buf);
 	if(len2<tlen)tlen = (uint8_t)len2;
 	if(tlen>509)tlen = 509;
-//	strcpy_s((char *)Buf2,512,(char *)Buf);
    	strcpy_s((char *)Buf2,sizeof(Buf2),(char *)Buf);
 	switch(MDEV[UHDEV[ch].MDEV_num].delimiter){
 		case 3:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = '\n';
-		//	Buf2[2] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\r';
 			Buf2[tlen+1] = '\n';
 			Buf2[tlen+2] = 0;
 			tlen+=2;
 			break;
 		case 2:
-		//	Buf2[0] = '\n';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\n';
 			Buf2[tlen+1] = 0;
 			tlen++;
 			break;
 		case 1:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\r';
 			Buf2[tlen+1] = 0;
 			tlen++;
@@ -2693,8 +2520,6 @@ int HIDSendS(lua_State * L)
 	}
 	if(UHDEV.size() > ch){
 		if(UHDEV[ch].handle != NULL){
-		//	libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT,
-		//				(unsigned char *)Buf,tlen,&data_len, 1000);
 			libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT,
 						(unsigned char *)Buf2,tlen,&data_len, 1000);
 			r = 1;
@@ -2716,15 +2541,12 @@ int HIDSendS3(char * NAME,char * Buf)
 	int i,j,ch,r;
 	ch = 0;
 	int data_len=1;
-//	char Buf2[4] = {0};
 	unsigned char Buf2[512] = {0};
-//	size_t len2;
 
 	if((NAME[0] >= '0')&&(NAME[0] <= '9')){
 		ch = NAME[0] - '0';
 	}else{
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,NAME))){
 			if(!(strcmp(MDEV[i].name.c_str(),NAME))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -2738,30 +2560,19 @@ int HIDSendS3(char * NAME,char * Buf)
     int tlen = (int)strlen((char *)Buf);
 	if(tlen > 509)tlen = 509;
    	strcpy_s((char *)Buf2,sizeof(Buf2),(char *)Buf);
-//	if(len2<tlen)tlen = (uint8_t)len2;
 	switch(MDEV[UHDEV[ch].MDEV_num].delimiter){
 		case 3:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = '\n';
-		//	Buf2[2] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\r';
 			Buf2[tlen+1] = '\n';
 			Buf2[tlen+2] = 0;
 			tlen+=2;
 			break;
 		case 2:
-		//	Buf2[0] = '\n';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\n';
 			Buf2[tlen+1] = 0;
 			tlen++;
 			break;
 		case 1:
-		//	Buf2[0] = '\r';
-		//	Buf2[1] = 0;
-		//	luaL_addstring((luaL_Buffer *)&Buf,Buf2);
 			Buf2[tlen] = '\r';
 			Buf2[tlen+1] = 0;
 			tlen++;
@@ -2773,8 +2584,6 @@ int HIDSendS3(char * NAME,char * Buf)
 
 	if(UHDEV.size() > ch){
 		if(UHDEV[ch].handle != NULL){
-		//	libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT,
-		//				(unsigned char *)Buf,tlen,&data_len, 1000);
 			libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPOUT,
 						(unsigned char *)Buf2,tlen,&data_len, 1000);
 			r = 1;
@@ -2789,19 +2598,16 @@ int HIDSendS3(char * NAME,char * Buf)
 
 int HIDRecv(lua_State * L)
 {
-//	unsigned int r;
 	int i,j,ch,ret;
 	ch = 0;
 	unsigned char data[600]={0};
 	int data_len=1;
-//	size_t len2;
 	
 	if(lua_isnumber(L, 1)){
 		ch = (int)lua_tointeger(L, 1);
 	} else if(lua_isstring(L, 1)){
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -2811,35 +2617,20 @@ int HIDRecv(lua_State * L)
 			}
 		}
 	}else{
-//      lua_pushinteger(L, -1);
-//      lua_pushstring(L, "");
 		// 引数不正は (0, "") を返す（既存と互換）
 		lua_pop(L, lua_gettop(L));
 		lua_pushinteger(L, 0);
 		lua_pushlstring(L, "", 0);
         return 2;		
 	}
-//  unsigned char * Buf = reinterpret_cast<unsigned char*>(const_cast<void*>(lua_topointer(L, 2)));
-//	unsigned char * Buf = (unsigned char *)lua_tostring(L, 2);
-//	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 2, &len2);
-//	Buf[0] = 0;
 	
 	int len = -1;
-//	if(libusb_bulk_transfer(UHDEV[ch].handle, LIBUSB_ENDPOINT_IN|1, 
 	if(UHDEV.size() > ch){
 		if(UHDEV[ch].handle != NULL){
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		data, sizeof(data), &data_len, 1000);
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		Buf, sizeof(Buf), &data_len, 1000);
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		Buf, 64, &data_len, 1000);
 			ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
 				data, sizeof(data), &data_len, 1000);
 			if(ret == 0){
           		len = data_len > 599 ? 599 : data_len;
-			//	for(i=0;i<len;i++)Buf[i] = data[i];
-			//	Buf[len] = 0;
           	}else{
 				len = 0;
 				if (ret == LIBUSB_ERROR_TIMEOUT ){
@@ -2882,8 +2673,6 @@ int HIDRecv(lua_State * L)
 	} else {
 		lua_pushlstring(L, "", 0);
 	}
-//	lua_pushlstring (L,(char *)Buf,len);
-//	lua_pushlstring (L,(char *)data,len);
 	return 2;
 }
 /*--------------------------------------------------------------------------------*/
@@ -2907,7 +2696,6 @@ int HIDRecv2(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -2920,28 +2708,17 @@ int HIDRecv2(lua_State * L)
 	len = 0;
 	if(UHDEV.size() > ch){
 		if(UHDEV[ch].handle != NULL){
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		(unsigned char *)&Buf, 512, &data_len, 1000);
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		(unsigned char *)&Buf, 64, &data_len, 1000);
 			ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
 				data, sizeof(data), &data_len, 1000);
-		//	ret = libusb_bulk_transfer(UHDEV[ch].handle,UHDEV[ch].EPIN,
-		//		data, 64, &data_len, 1000);
 			if(ret == 0){
 				if(data_len > 599){
 					len2 = 599;
 				}else{
 					len2 = data_len;
 				}
-			//	luaL_buffinitsize(L, &Buff,64);
 				luaL_buffinitsize(L, &Buff,len2);
 				Buf = luaL_prepbuffer(&Buff);
-			//	for(i=0;i<64;i++)Buf[i] = data[i];
 				for(i=0;i<len2;i++)Buf[i] = data[i];
-			//	len = data_len;
-			//	Buf[64] = 0;
-			//	len = 64;
 				len = (int)len2;
 			}else{
 				len = 0;
@@ -2978,12 +2755,13 @@ int HIDRecv2(lua_State * L)
 		len = -1;
 	}
     // 結果をスタックに戻す
-//	if(len < 64){
-//		len3 = 64-len;
-//	 	luaL_buffsub(&Buff,len3);
-//  }
   	lua_pop(L, lua_gettop(L));
-	luaL_pushresultsize(&Buff,len);
+	if (len > 0) {
+		luaL_pushresultsize(&Buff,len);
+	}else{
+		luaL_buffinitsize(L, &Buff,0);
+		luaL_pushresultsize(&Buff,len);
+	}
     lua_pushinteger(L, len);
 	return 2;
 }
@@ -3000,7 +2778,6 @@ int HIDRecv3(char * NAME,unsigned char * Buf)
 		ch = NAME[0] - '0';
 	}else{
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,NAME))){
 			if(!(strcmp(MDEV[i].name.c_str(),NAME))){
 				for(j=0;j<UHDEV.size();j++){
 					if(UHDEV[j].MDEV_num == i){
@@ -3071,7 +2848,6 @@ int NetInitCheck(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3102,7 +2878,6 @@ int NetConnect(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3136,7 +2911,6 @@ int NetDisConnect(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3165,7 +2939,6 @@ int NetSend(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3175,10 +2948,8 @@ int NetSend(lua_State * L)
 			}
 		}
 	}
-//	unsigned char * Buf = (unsigned char *)lua_tostring(L, 2);
 	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 2, &len2);
 	len = (int)lua_tonumber(L, 3);
-//	if(len > 1024)len = 1024;
 	if(len > len2)len = (int)len2;
 	if(ch>4)ch = 0;
 	for(i=0;i<len;i++)SND[5+ch].buf[i]= Buf[i];
@@ -3199,7 +2970,6 @@ int NetWaitRecv(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3210,7 +2980,6 @@ int NetWaitRecv(lua_State * L)
 		}
 	}
 	int timeout = (int)lua_tonumber(L, 2);
-//	while((COMBUF[10+ch].len == 0)&&(timeout > 0)) {
 	while((COMBUF[(10+ch)&0x1ffff].len == 0)&&(timeout > 0)) {
 		Sleep(1000);
 		timeout--;
@@ -3227,14 +2996,12 @@ int NetRecv(lua_State * L)
 	int len = 0;
 	int i,j;
 	int ch = 0;
-//	size_t len2;
 
 	if(lua_isnumber(L, 1)){
 		ch = (int)lua_tointeger(L, 1);
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3244,10 +3011,6 @@ int NetRecv(lua_State * L)
 			}
 		}
 	}
-//	unsigned char * Buf = (unsigned char *)lua_tostring(L, 2);
-//	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 2, &len2);
-//	COMBUF[10+ch].len = NET[ch].Recv(Buf);
-
 	if (COMBUF[(5+ch)&0x1ffff].len>0) {	//何かIP Portから受け取ったなら
 		r = COMBUF[5+ch].len;
 	}else{
@@ -3281,7 +3044,6 @@ int NetRecv2(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				for(j=0;j<NET.size();j++){
 					if(NET[j].MDEV_num == i){
@@ -3292,7 +3054,6 @@ int NetRecv2(lua_State * L)
 		}
 	}
 
-//	if (COMBUF[10+ch].len>0) {	//何かIP Portから受け取ったなら
 	if (COMBUF[(10+ch)&0x1ffff].len>0) {	//何かIP Portから受け取ったなら
 		r = COMBUF[10+ch].len;
 		luaL_buffinitsize(L, &Buff,r);
@@ -3306,7 +3067,6 @@ int NetRecv2(lua_State * L)
   	lua_pop(L, lua_gettop(L));
 	luaL_pushresultsize(&Buff,r);
     lua_pushinteger(L, r);
-//	lua_pushlstring (L,(char *)COMBUF[10+ch].Buf,len);
     return 2; // 戻り値の数を返す
 }
 /*--------------------------------------------------------------------------------*/
@@ -3338,20 +3098,13 @@ int DeviceSeq(lua_State * L)
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
-		//	if(!(strcmp(MDEV[i].name,name))){
 			if(!(strcmp(MDEV[i].name.c_str(),name))){
 				num = i;
 				switch (MDEV[i].interface_type){
 					case 1://serial
-					//	ch = 必ずinit時の数字で指定
 						ch = MDEV[i].ser_ch;
 						break;
 					case 2://IVI
-					//	for(j=0;j<VISESS.size();j++){
-					//		if(!(strcmp(VISESS[j].name,name))){
-					//			ch = j;
-					//		}
-					//	}
 						break;
 					case 3://USB HID
 						for(j=0;j<UHDEV.size();j++){
@@ -3473,10 +3226,6 @@ int DeviceSeq(lua_State * L)
 							default:
 								break;
 						}
-					//	if(VISESS.size() > 0){
-					//		viPrintf(VISESS[ch].session,(char *)data);
-					//		r = 1;
-					//	}
 						break;
 					case 3://HID
 						if(MDEV[num].MCMD[cmdn].CMD[i].param < 0){
@@ -3650,16 +3399,10 @@ int DeviceSeq(lua_State * L)
 				Sleep(1000 * MDEV[num].MCMD[cmdn].CMD[i].param);
 				}
 			}else if(MDEV[num].MCMD[cmdn].CMD[i].type == 3){/*MWAIT*/
-				//	timewait_flg = SCN[num].S[list].data;
-				//	timewait_flg = timewait_flg*(100/Interval);
-				//	timewait_flg = 1000;
-			//	Sleep(100);
 				if(MDEV[num].MCMD[cmdn].CMD[i].param < 0){
 				Sleep(100 * (int)lua_tointeger(L,2-(MDEV[num].MCMD[cmdn].CMD[i].param)));
-		//	timewait_flg = (int)lua_tointeger(L,2-(MDEV[num].MCMD[cmdn].CMD[i].param));
 				}else{
-				Sleep(100 * MDEV[num].MCMD[cmdn].CMD[i].param);
-			//		timewait_flg =	MDEV[num].MCMD[cmdn].CMD[i].param;
+					Sleep(100 * MDEV[num].MCMD[cmdn].CMD[i].param);
 				}
 			}else if(MDEV[num].MCMD[cmdn].CMD[i].type == 2){/*FUNC*/
 				//
@@ -3676,8 +3419,6 @@ int uSleep(lua_State * L)
 	int r = 0;
 	int time = (int)lua_tonumber(L, 1);
 
-//	timewait_flg = time*(1000/Interval);
-	
 	::Sleep((1000/Interval) * time);
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
@@ -3691,7 +3432,6 @@ int mSleep(lua_State * L)
 
 	timewait_flg = time*(100/Interval);
 	
-//	::Sleep(1000 * time);
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -3707,7 +3447,6 @@ int KeyWait(lua_State * L)
 	int r = 0;
 	keywait_flg = 1;
 	
-//	if(keywait_flg > 0) r = 1;
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -3719,13 +3458,11 @@ int RegRead(lua_State * L)
 	long data;
 	int RID;
 	int i;
-//	int i,j;
 	if(lua_type(L,1) == LUA_TNUMBER){
 		RID = (int)lua_tonumber(L, 1);
 	}else if(lua_type(L,1) == LUA_TNUMBER){
 		RID = 0;
 		for(i=0;i<REG.size();i++){
-		//	if(!(strcmp(REG[i].name,lua_tostring(L, 1)))){
 			if(REG[i].name == lua_tostring(L, 1)){
 				RID = i;
 			}
@@ -3733,32 +3470,14 @@ int RegRead(lua_State * L)
 	}else{
 		RID = 0;
 	}
-#if 0
-	int MID = (int)lua_tonumber(L, 2);
-	int addr = (int)lua_tonumber(L, 3);
-#else
+
 	int addr = (int)lua_tonumber(L, 2);
-#endif
-//	int data = (long)lua_tonumber(L, 4);
 	data = 0;
-#if 0
-	if((MID > 0)&&(MID < 7)){
-		for(i=0;i<REG[RID].PART[MID].isize;i++){
-			if((addr >= REG[RID].PART[MID].SUB[i].start)
-			 &&(addr <= REG[RID].PART[MID].SUB[i].start 
-			  + REG[RID].PART[MID].SUB[i].isize)){
-				j = addr - REG[RID].PART[MID].SUB[i].start;
-				data = REG[RID].PART[MID].SUB[i].DATA[j];
-			}
-		}
-	}
-#else
 	if(RID < REG.size()){
 		if((REG[RID].start <= addr)&&((REG[RID].start + REG[RID].isize) > addr)){
 			data = REG[RID].DATA[addr];
 		}
 	}
-#endif
     // 結果をスタックに戻す
     lua_pushinteger(L, data);
     return 1; // 戻り値の数を返す
@@ -3766,7 +3485,6 @@ int RegRead(lua_State * L)
 int RegWrite(lua_State * L)
 {
 	unsigned int r;
-//	int i,j,k;
     int i;
 	int RID;
 	if(lua_type(L,1) == LUA_TNUMBER){
@@ -3774,7 +3492,6 @@ int RegWrite(lua_State * L)
 	}else if(lua_type(L,1) == LUA_TNUMBER){
 		RID = 0;
 		for(i=0;i<REG.size();i++){
-		//	if(!(strcmp(REG[i].name,lua_tostring(L, 1)))){
 			if(REG[i].name == lua_tostring(L, 1)){
 				RID = i;
 			}
@@ -3782,49 +3499,15 @@ int RegWrite(lua_State * L)
 	}else{
 		RID = 0;
 	}
-#if 0
-	int MID = (int)lua_tonumber(L, 2);
-	int addr = (int)lua_tonumber(L, 3);
-	int data = (long)lua_tonumber(L, 4);
-#else
 	int addr = (int)lua_tonumber(L, 2);
 	long data = (long)lua_tonumber(L, 3);
-#endif
 	r = 0;
-#if 0
-	if((MID > 0)&&(MID < 7)){
-		for(i=0;i<REG[RID].PART[MID].isize;i++){
-			if((addr >= REG[RID].PART[MID].SUB[i].start)
-			 &&(addr <  REG[RID].PART[MID].SUB[i].start 
-			  + REG[RID].PART[MID].SUB[i].isize)){
-				j = addr - REG[RID].PART[MID].SUB[i].start;
-				REG[RID].PART[MID].SUB[i].DATA[j] = data;
-				r = 1;
-			}
-		}
-	}else{
-		if(MID == 0x0F){
-			for(k=0;k<REG[RID].isize;k++){
-				for(i=0;i<REG[RID].PART[k].isize;i++){
-					if((addr >= REG[RID].PART[k].SUB[i].start)
-					 &&(addr <  REG[RID].PART[k].SUB[i].start 
-					  + REG[RID].PART[k].SUB[i].isize)){
-						j = addr - REG[RID].PART[k].SUB[i].start;
-						REG[RID].PART[k].SUB[i].DATA[j] = data;
-						r = 1;
-					}
-				}
-			}
-		}
-	}
-#else
 	if(RID < REG.size()){
 		if((REG[RID].start <= addr)&&((REG[RID].start + REG[RID].isize) > addr)){
 			REG[RID].DATA[addr] = data;
 			r = 1;
 		}
 	}
-#endif
     // 結果をスタックに戻す
     lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -3832,19 +3515,12 @@ int RegWrite(lua_State * L)
 
 int CRC16(lua_State * L)
 {
-//	int i,n,len;
 	int len;
-//	unsigned char C_dummy[512];
 	unsigned short CRC16;
-//	unsigned short n;
 	size_t len2;
 
-//	unsigned char * Buf = (unsigned char *)lua_tolstring(L, 1,&len2);
 	const unsigned char * inBuf = (const unsigned char *)lua_tolstring(L, 1, &len2);
 	len = (int)lua_tonumber(L, 2);
-//	n = len - 2;
-//	n = len;
-//	if(len > len2)len = (int)len2;
 	if(len > (int)len2) len = (int)len2;
 
 	// 入力は変更せず、出力用バッファを作る
@@ -3856,71 +3532,36 @@ int CRC16(lua_State * L)
 		// 空入力ならゼロ長
 	}
 	
-//	for(i=0;i<n;i++)C_dummy[i] = Buf[i];
-//	for(i=n;i<n+2;i++)C_dummy[i] = 0;
-//	CRC16 = CRC_CCITT_LSBfirst_ALL1(n+2, C_dummy);
-//	CRC16 = CRC_CCITT_LSBfirst_ALL1(n, C_dummy);
-//	CRC16 = CRC_CCITT_LSBfirst_ALL1(len, Buf);
-//	CRC16 = CalCRC_CMD(len, Buf);
-//	Buf[len  ] = (char)( CRC16      & 0xff);
-//	Buf[len+1] = (char)((CRC16 >> 8)& 0xff);
-//	Buf[len+2] = 0xff;
 	CRC16 = CalCRC_CMD((unsigned short)len, const_cast<unsigned char*>(inBuf));
 	out[len]   = static_cast<char>( CRC16       & 0xff);
 	out[len+1] = static_cast<char>((CRC16 >> 8) & 0xff);
 	out[len+2] = static_cast<char>(0xff);
 	
-#if 0
-	C_dummy[n  ] = (char)( CRC16      & 0xff);
-	C_dummy[n+1] = (char)((CRC16 >> 8)& 0xff);
-//	strcpy_s(Buf,n+2,(char *)C_dummy);
-	strcpy_s(Buf,((size_t)n)+2,(char *)C_dummy);
-#endif
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, CRC16);
-//	lua_pushlstring (L,(char *)Buf,len+3);
 	lua_pushlstring(L, out.data(), len+3);
     return 2; // 戻り値の数を返す
 }
-#if 1
+
 /*呼び出すと1フレームづつテレメトリを作る*/
-//void mkframe(unsigned long long * TLMDATA, unsigned char * buf)
 int mkframe(lua_State * L)
 {
 	int i,j,r;
 	r = 0;
 	long long TLMD;
-//	size_t len,len2;
 	
-//	char * Buf = (char *)lua_tostring(L, 1);
-//	len = (int)lua_tonumber(L, 2);
-	// 出力長（第2引数）を取得
-//	len = (size_t)lua_tonumber(L, 2);
 	size_t outSize = (size_t)lua_tonumber(L, 2);
 	// 第1引数（元バッファ）は無視して、新規バッファを用意する
 	std::vector<unsigned char> out;
 	out.assign(outSize, 0);
-		
-//	char * Buf = (char *)lua_tolstring(L, 1, &len2);
-//	char * Buf = (char *)lua_tostring(L, 1);
-//	long long * TLMD = (long long *)lua_topointer(L, 3);
-//	long long * TLMD = (long long *)lua_tostring(L, 3);
-//	for(i=0;i<len2;i++)Buf[i] = 0;
 
 	for(i=0;(unsigned int)i<TLM.size();i++){
-	//	size = TLM[i].size;
 		for(j=0;j<TLM[i].size;j++){
 			lua_pushinteger(L,i+1);
 			lua_gettable(L, 3);
 			TLMD = (__int64)lua_tonumber(L,-1);
 			lua_pop(L,1);
-		//	Buf[(TLM[i].PART[j].major)] |= ((TLMD[i] >> TLM[i].PART[j].shift)
-		//				 	     		   & TLM[i].PART[j].mask);
-	//		if((TLM[i].PART[j].major) < len2){
-	//		Buf[(TLM[i].PART[j].major)] |= ((TLMD >> TLM[i].PART[j].shift)
-	//					 	     		   & TLM[i].PART[j].mask);
-	//		}
 			// 範囲チェック：書き込み先が outSize 未満なら書き込む
 			if ((size_t)TLM[i].PART[j].major < outSize) {
 				out[TLM[i].PART[j].major] |= static_cast<unsigned char>(
@@ -3928,15 +3569,12 @@ int mkframe(lua_State * L)
 			}
 		}
 	}
-//	r = (int)len;
 	r = (int)outSize;
 	
   	lua_pop(L, lua_gettop(L));
-//	lua_pushlstring (L,(char *)Buf,r);
 	lua_pushlstring(L, reinterpret_cast<const char*>(out.data()), r);
     return 1; // 戻り値の数を返す
 }
-#endif
 
 int GetAddr(lua_State * L)
 {
@@ -3978,10 +3616,6 @@ int SetC(lua_State * L)
 	LM.LU[index].num = num;
 	LM.LU[index].fnum = fnum;
 	
-//	if(!(strcmp(Buf,"RcvWait"))){
-//		keywait_flg = (int)lua_tonumber(L, 3);
-//	}
-
   	lua_pop(L, lua_gettop(L));
 	lua_pushnumber(L, r);
 	return 1;
@@ -4004,14 +3638,12 @@ int GetC(lua_State * L)
 	if(index != -1){
 		if(LM.LU[index].type == 0){
 			num = LM.LU[index].num;
-  		//	lua_pushnumber(L, num);
   			lua_pushinteger(L, num);
 		}else{
 			fnum = LM.LU[index].fnum;
 			lua_pushnumber(L, fnum);
 		}
 	}else{
-	//	lua_pushnumber(L, num);
 		lua_pushinteger(L, num);
 	}
 	return 1;
