@@ -21,6 +21,7 @@ int SerialSend(lua_State * );
 int SerialWaitRecv(lua_State * );
 int SerialRecv(lua_State * );
 int SerialRecv2(lua_State * );
+int SerialClear(lua_State * );
 int Sleep(lua_State * );
 int uSleep(lua_State * );
 int mSleep(lua_State * );

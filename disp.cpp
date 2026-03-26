@@ -1771,7 +1771,8 @@ void HexDataREP2(HWND hWnd)
 				}
 				i = (int)(wcslen(Disp));
 				if(i>(ws-1))i=(ws-1);
-				for(j=i;j<(ws-1);j++)Disp[j] = L' ';
+			//	for(j=i;j<(ws-1);j++)Disp[j] = L' ';
+				for(j=i;j<ws;j++)Disp[j] = L' ';
 				Disp[ws] = 0;
 				TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 			}
@@ -2311,7 +2312,7 @@ int SerialWaitRecv(lua_State * L)
 	
 	int ch = (int)lua_tonumber(L, 1);
 	char * Buf = (char *)lua_tolstring(L, 2,&len2);
-	int timeout = (int)lua_tonumber(L, 2);
+	int timeout = (int)lua_tonumber(L, 3);
 	
 	while((r == 0)&&(timeout > 0)) {
 		if (COMBUF[ch].len2>0) {	//何かComから受け取ったなら
@@ -2392,6 +2393,21 @@ int SerialRecv2(lua_State * L)
 	luaL_pushresultsize(&Buff,r);
     lua_pushinteger(L, r);
     return 2; // 戻り値の数を返す
+}
+/*--------------------------------------------------------------------------------*/
+/* シリアルポートバッファクリア                                                   */
+/*Lua上の引数 1:シリアルチャンネル番号                                            */
+/*Lua上の戻り値 0                                                                 */
+/*--------------------------------------------------------------------------------*/
+int SerialClear(lua_State * L)
+{
+	int r = 0;
+	int ch = (int)lua_tonumber(L, 1);
+	COMBUF[ch].Buf2[0] = 0;
+	COMBUF[ch].len2 = 0;
+  	lua_pop(L, lua_gettop(L));
+    lua_pushinteger(L, r);
+    return 1; // 戻り値の数を返す
 }
 
 int Sleep(lua_State * L)

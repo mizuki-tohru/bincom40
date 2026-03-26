@@ -74,11 +74,18 @@
 #define POLY 0x8408
 #define TLMDATA_NUM 256
 #define MAX_CLIENTS 5
-#define LINGBUF_SIZE 37778
+#define LINGBUF_SIZE 32768 //0x8000 0x7fff 0b0111 1111 1111 1111
+#define LINGBUF_MAX  32767 //0x8000 0x7fff 0b0111 1111 1111 1111
+//#define LINGBUF_SIZE 37778
 //#define LINGBUF_SIZE 37779
 #define TLMDATA_NUM 256
 #define SENDBUF_SIZE 4096
-#define RTN_SIZE 100
+#define SENDBUF_MAX 4095
+#define RTN_SIZE 256
+
+#define ASCII 0
+#define HEX   1
+#define LUA   2
 
 enum maker_t {
     MAKER_DUMMY = 0,
@@ -496,15 +503,15 @@ extern HANDLE		hEventObject[5];
 extern OVERLAPPED	COMOverlappedW[5];
 extern HANDLE		hEventObjectW[5];
 
-extern int frm_U[100];			//画面表示ASCII-UTF-8-HEXフラグ
-extern int sfrm_U[RTN_SIZE+2];			//画面表示ASCII-UTF-8-HEXフラグ
+extern int frm_U[RTN_SIZE];			//画面表示ASCII-UTF-8-HEXフラグ
+extern int sfrm_U[RTN_SIZE];			//画面表示ASCII-UTF-8-HEXフラグ
 extern int retcnt;
 extern long RtnPos[RTN_SIZE+2];
 extern long sRtnPos[RTN_SIZE+2];
-extern unsigned int RtnN;
-extern unsigned int FstN;
-extern unsigned int sRtnN;
-extern unsigned int sFstN;
+extern unsigned long RtnN;
+extern unsigned long FstN;
+extern unsigned long sRtnN;
+extern unsigned long sFstN;
 
 unsigned short CRC_CCITT_LSBfirst_ALL1(unsigned short, unsigned char []);
 
