@@ -715,4 +715,5 @@ Please copy __libusb.h__ and __libusb-1.0.lib__ to the same folder as this sourc
 Currently, no issues have been reported. If you notice any issues, please contact us at the address below.
 
 ## 17: Copyright Holder and Contact Information
-Toru Mizuki | t_mizuki@aes.co.jp
+Toru Mizuki | [twitter](https://twitter.com/mizuki_tohru)
+
