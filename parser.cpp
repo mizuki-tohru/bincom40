@@ -53,6 +53,7 @@ void rchar(FILE * F)
 				}
 			}else{
 				C_C.text[0] = 0;
+				C_C.Wtext[0] = 0;
 				if((ch == ' ')||(ch == '\t')){ /*空白*/
 					C_C.flg = 0;
 					for(;;){

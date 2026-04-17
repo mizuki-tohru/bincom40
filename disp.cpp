@@ -47,7 +47,7 @@ int SetC(lua_State * L);
 int GetC(lua_State * L);
 int GetAddr(lua_State * );
 
-struct rcv_data2 SND[6];
+struct rcv_data2 SND[8];
 vector<reg_main> REG;
 struct EXBITMAPINFO BmInfo;
 BITMAPFILEHEADER    BmFileHed;
@@ -1104,13 +1104,16 @@ int ltohex2(unsigned long l,unsigned char * buf,unsigned char i)
 void scroll2(unsigned int kai)
 {
     unsigned int j;
-	int hs = ((WSIZE_HEIGHT-80)/75);
+//	int hs = ((WSIZE_HEIGHT-80)/75);
+	unsigned int hs = ((WSIZE_HEIGHT-80)/75)-1;
 	int wh = FIXParam_Cnt/(int)((WSIZE_WIDTH-2)/135);
 	int ws = ((WSIZE_WIDTH-12)/8)-1;
+	unsigned int vs = (((((WSIZE_WIDTH-12)/8)-2)/4)*3);//48
 
     for(j=0;j<kai;j++){
 		if(frm_U[RtnN] == 1){//Hex
-			stpoint+= ws;//表示先頭の行終端へ
+		//	stpoint+= ws;//表示先頭の行終端へ
+			stpoint+= (vs+1);//表示先頭の行終端へ
 			if(stpoint>=(LINGBUF_SIZE-1))stpoint=(stpoint-(LINGBUF_SIZE-1));
 			if((int)(FstN+1) >= ((hs*4)+(3-wh))){
 				FstN = 0;
@@ -1121,18 +1124,19 @@ void scroll2(unsigned int kai)
 					}else{
 						RtnN++;
 					}
-					RtnPos[RtnN] = edpoint;
+					RtnPos[RtnN&0xff] = edpoint;
 				}
 				FstN++;
 			}
-			RtnPos[FstN] = stpoint;
+			RtnPos[FstN&0xff] = stpoint;
 		}else{
-	    	while((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n')){//表示先頭の行終端を探す
+	    	while((frmm[stpoint&LINGBUF_MAX]!=0)&&(frmm[stpoint&LINGBUF_MAX]!='\n')){
+				//表示先頭の行終端を探す
 				stpoint++;
 				if(stpoint>(LINGBUF_SIZE-1))stpoint=0;
 			}
 			//ここでstpointは0か\nを指している
-			while(frmm[stpoint] == 0){
+			while(frmm[stpoint&LINGBUF_MAX] == 0){
 				stpoint++;
 				if(stpoint>(LINGBUF_SIZE-1))stpoint=0;
 			}
@@ -1146,11 +1150,11 @@ void scroll2(unsigned int kai)
 					}else{
 						FstN++;
 					}
-					RtnPos[RtnN] = edpoint;
+					RtnPos[RtnN&0xff] = edpoint;
 				}
 				FstN++;
 			}
-			RtnPos[FstN] = stpoint;
+			RtnPos[FstN&0xff] = stpoint;
 		}
 	}
 }
@@ -1165,7 +1169,7 @@ void send_scroll2(unsigned int kai)
 	int ws = ((WSIZE_WIDTH-12)/8)-1;
 
     for(j=0;j<kai;j++){
-		if(sfrm_U[sRtnN] == 1){//Hex
+		if(sfrm_U[sRtnN&0xff] == 1){//Hex
 			sstpoint+= ws;//表示先頭の行終端へ
 			if(sstpoint>=(SENDBUF_SIZE-1))sstpoint=(sstpoint-(SENDBUF_SIZE-1));
 			if((int)(sFstN+1) > hs){
@@ -1177,18 +1181,19 @@ void send_scroll2(unsigned int kai)
 					}else{
 						sRtnN++;
 					}
-					sRtnPos[sRtnN] = sedpoint;
+					sRtnPos[sRtnN&0xff] = sedpoint;
 				}
 				sFstN++;
 			}
-			sRtnPos[sFstN] = sstpoint;
+			sRtnPos[sFstN&0xff] = sstpoint;
 		}else{
-	    	while((sfrmm[sstpoint]!=0)&&(sfrmm[sstpoint]!='\n')){//表示先頭の行終端を探す
+	    	while((sfrmm[sstpoint&SENDBUF_MAX]!=0)&&(sfrmm[sstpoint&SENDBUF_MAX]!='\n')){
+				//表示先頭の行終端を探す
 				sstpoint++;
 				if(sstpoint>(SENDBUF_SIZE-1))sstpoint=0;
 			}
 			//ここでstpointは0か\nを指している
-			while(sfrmm[sstpoint] == 0){
+			while(sfrmm[sstpoint&SENDBUF_MAX] == 0){
 				sstpoint++;
 				if(sstpoint>(SENDBUF_SIZE-1))sstpoint=0;
 			}
@@ -1201,7 +1206,7 @@ void send_scroll2(unsigned int kai)
 					}else{
 						sRtnN++;
 					}
-					sRtnPos[sRtnN] = sedpoint;
+					sRtnPos[sRtnN&0xff] = sedpoint;
 				}
 				sFstN++;
 			}
@@ -1215,10 +1220,10 @@ void send_scroll2(unsigned int kai)
 					}else{
 						sFstN++;
 					}
-					sRtnPos[sFstN] = sstpoint;
+					sRtnPos[sFstN&0xff] = sstpoint;
 				}
 			}
-			sRtnPos[sFstN] = sstpoint;
+			sRtnPos[sFstN&0xff] = sstpoint;
 		}
 	}
 }
@@ -1372,17 +1377,19 @@ int DispStrP(lua_State *L)
 		/*改行条件*/
 		if ((Bufin[i] == '\n')||(Bufin[i] == '\r')) {
 			if(edpoint!=0){
-				if(frmm[edpoint-1] != '\n'){
-					frmm[edpoint] = '\n';
+				if(frmm[(edpoint-1)&LINGBUF_MAX] != '\n'){
+					frmm[edpoint&LINGBUF_MAX] = '\n';
 					if((edpoint+1) == stpoint){
 						stpoint++;
-						if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+						if((frmm[stpoint&LINGBUF_MAX]!=0)
+						 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 					}
 					if((edpoint+1) > LINGBUF_SIZE){
 						edpoint = 0;
 						if(stpoint == 0){
 							stpoint++;
-							if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+							if((frmm[stpoint&LINGBUF_MAX]!=0)
+							 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 						}
 					}
 					if(stpoint > LINGBUF_SIZE){
@@ -1391,16 +1398,18 @@ int DispStrP(lua_State *L)
 					retcnt++;
 				}
 			}else{
-				frmm[edpoint] = '\n';
+				frmm[edpoint&LINGBUF_MAX] = '\n';
 				if((edpoint+1) == stpoint){
 					stpoint++;
-					if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+					if((frmm[stpoint&LINGBUF_MAX]!=0)
+					 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 				}
 				if((edpoint+1) > LINGBUF_SIZE){
 					edpoint = 0;
 					if(stpoint == 0){
 						stpoint++;
-						if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+						if((frmm[stpoint&LINGBUF_MAX]!=0)
+						 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 					}
 				}
 				if(stpoint > LINGBUF_SIZE){
@@ -1412,8 +1421,8 @@ int DispStrP(lua_State *L)
 				scroll2(1);			//収まるようにスクロール
 				retcnt--;
 			}
-			m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
-			if(m == strlen(&frmm[lnpoint])){//ASCII
+			m = UTF8Len2((const unsigned char *)&frmm[lnpoint&LINGBUF_MAX],ws,&n);
+			if(m == strlen(&frmm[lnpoint&LINGBUF_MAX])){//ASCII
 			//	frm_U[RtnN] = 0;
 				frm_U[RtnN] = (Display_flg & 0x01);
 			}else{
@@ -1421,9 +1430,9 @@ int DispStrP(lua_State *L)
 			}
 			if(m>ws){
 				for(k=edpoint;k>(lnpoint+n);k--){
-					frmm[k+1] = frmm[k];
+					frmm[(k+1)&LINGBUF_MAX] = frmm[k&LINGBUF_MAX];
 				}
-				frmm[lnpoint+n+1] = 0;
+				frmm[(lnpoint+n+1)&LINGBUF_MAX] = 0;
 				edpoint++;
 				retcnt++;
 				
@@ -1436,12 +1445,12 @@ int DispStrP(lua_State *L)
 						}else{
 							FstN++;
 						}
-						RtnPos[FstN] = stpoint;
+						RtnPos[FstN&0xff] = stpoint;
 					}
 					RtnN++;
 				}
 
-				RtnPos[RtnN] = lnpoint+n+2;/*書き直し*/
+				RtnPos[RtnN&0xff] = lnpoint+n+2;/*書き直し*/
 				lnpoint = lnpoint+n+2;
 			}
 			RtnN++;
@@ -1449,14 +1458,15 @@ int DispStrP(lua_State *L)
 			if((int)RtnN >= ((hs*4)+(3-wh)))RtnN = 0;
 			if((int)FstN >= ((hs*4)+(3-wh)))FstN = 0;
 			edpoint++;
-			RtnPos[RtnN] = edpoint;
+			RtnPos[RtnN&0xff] = edpoint;
 			lnpoint = edpoint;
 			HexDataREP2(hogeWnd);
 		}else if ((i + 1) == len) {
-			frmm[edpoint] = Bufin[i];
+			frmm[edpoint&LINGBUF_MAX] = Bufin[i];
 			if((edpoint+1) == stpoint){
 				stpoint++;
-				if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+				if((frmm[stpoint&LINGBUF_MAX]!=0)
+				 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 			}
 			if((edpoint+1) > LINGBUF_SIZE){
 				edpoint = 0;
@@ -1466,10 +1476,11 @@ int DispStrP(lua_State *L)
 				stpoint = 0;
 			}
 			edpoint++;
-			frmm[edpoint] = 0;//行末
+			frmm[edpoint&LINGBUF_MAX] = 0;//行末
 			if(edpoint == stpoint){
 				stpoint++;
-				if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+				if((frmm[stpoint&LINGBUF_MAX]!=0)
+				 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 			}
 			if((edpoint+1) > LINGBUF_SIZE){
 				edpoint = 0;
@@ -1478,8 +1489,8 @@ int DispStrP(lua_State *L)
 			if(stpoint > LINGBUF_SIZE){
 				stpoint = 0;
 			}
-			m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
-			if(m == strlen(&frmm[lnpoint])){//ASCII
+			m = UTF8Len2((const unsigned char *)&frmm[lnpoint&LINGBUF_MAX],ws,&n);
+			if(m == strlen(&frmm[lnpoint&LINGBUF_MAX])){//ASCII
 				frm_U[RtnN] = 0;
 			//	frm_U[RtnN] = (Display_flg & 0x01);
 			}else{
@@ -1487,9 +1498,9 @@ int DispStrP(lua_State *L)
 			}
 			if(m>ws){//一行より大きいなら改行する
 				for(k=edpoint;k>(lnpoint+n);k--){
-					frmm[k+1] = frmm[k];
+					frmm[(k+1)&LINGBUF_MAX] = frmm[k&LINGBUF_MAX];
 				}
-				frmm[lnpoint+n+1] = 0;
+				frmm[(lnpoint+n+1)&LINGBUF_MAX] = 0;
 				edpoint++;
 				retcnt++;
 				
@@ -1502,12 +1513,12 @@ int DispStrP(lua_State *L)
 						}else{
 							FstN++;
 						}
-						RtnPos[FstN] = stpoint;
+						RtnPos[FstN&0xff] = stpoint;
 					}
 					RtnN++;
 				}
 				
-				RtnPos[RtnN] = lnpoint+n+2;/*書き直し*/
+				RtnPos[RtnN&0xff] = lnpoint+n+2;/*書き直し*/
 				lnpoint = lnpoint+n+2;
 			}
 
@@ -1520,26 +1531,27 @@ int DispStrP(lua_State *L)
 					}else{
 						FstN++;
 					}
-					RtnPos[FstN] = stpoint;
+					RtnPos[FstN&0xff] = stpoint;
 				}
 				RtnN++;
 			}
 			
 			edpoint++;
-			RtnPos[RtnN] = edpoint;//新しい終端
+			RtnPos[RtnN&0xff] = edpoint;//新しい終端
 			retcnt++;
 			lnpoint = edpoint;
 			HexDataREP2(hogeWnd);
 		}else {
-			frmm[edpoint&0x7fff] = Bufin[i];
+			frmm[edpoint&LINGBUF_MAX] = Bufin[i];
 			edpoint++;
-			frmm[edpoint&0x7fff] = 0;
-			if(edpoint+1 < LINGBUF_SIZE)frmm[edpoint+1] = 0;
-			if(edpoint+2 < LINGBUF_SIZE)frmm[edpoint+2] = 0;
-			if(edpoint+3 < LINGBUF_SIZE)frmm[edpoint+3] = 0;
+			frmm[edpoint&LINGBUF_MAX] = 0;
+			if(edpoint+1 < LINGBUF_SIZE)frmm[(edpoint+1)&LINGBUF_MAX] = 0;
+			if(edpoint+2 < LINGBUF_SIZE)frmm[(edpoint+2)&LINGBUF_MAX] = 0;
+			if(edpoint+3 < LINGBUF_SIZE)frmm[(edpoint+3)&LINGBUF_MAX] = 0;
 			if(edpoint == stpoint){
 				stpoint++;
-				if((frmm[stpoint]!=0)&&(frmm[stpoint]!='\n'))stpoint++;
+				if((frmm[stpoint&LINGBUF_MAX]!=0)
+				 &&(frmm[stpoint&LINGBUF_MAX]!='\n'))stpoint++;
 			}
 			if(edpoint > LINGBUF_SIZE){
 				edpoint = 0;
@@ -1548,14 +1560,14 @@ int DispStrP(lua_State *L)
 			if(stpoint > LINGBUF_SIZE){
 				stpoint = 0;
 			}
-			m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
+			m = UTF8Len2((const unsigned char *)&frmm[lnpoint&LINGBUF_MAX],ws,&n);
 			if((long)n >= ws){
 			//	m = UTF8Len2((const unsigned char *)&frmm[lnpoint],ws,&n);
 				for(k=edpoint;k>(lnpoint+n);k--){
-					frmm[(k+1)&0x7fff] = frmm[k&0x7fff];
+					frmm[(k+1)&LINGBUF_MAX] = frmm[k&LINGBUF_MAX];
 				}
-				frmm[(lnpoint+n+1)&0x7fff] = 0;
-				RtnPos[RtnN] = lnpoint+n+2;/*書き直し*/
+				frmm[(lnpoint+n+1)&LINGBUF_MAX] = 0;
+				RtnPos[RtnN&0xff] = lnpoint+n+2;/*書き直し*/
 				edpoint++;
 				retcnt++;
 
@@ -1568,7 +1580,7 @@ int DispStrP(lua_State *L)
 						}else{
 							FstN++;
 						}
-						RtnPos[FstN] = stpoint;
+						RtnPos[FstN&0xff] = stpoint;
 					}
 					RtnN++;
 				}
@@ -1641,10 +1653,10 @@ void HexDataREP2(HWND hWnd)
 {
 	HDC		   hdc;	//ハンドル
 	HFONT hFont;
-	unsigned char line[2000] = {0};	//バイナリ>キャラクタ変換用バッファ
+	unsigned char line[RTN_SIZE] = {0};	//バイナリ>キャラクタ変換用バッファ
     size_t ret;
 	int i,j,k,n,ws,m,p;
-	int j2,n2,n3;
+	int n2,n3;
 	if(WSIZE_WIDTH<28){
 		WSIZE_WIDTH = 28;
 		ws = 4;
@@ -1652,19 +1664,18 @@ void HexDataREP2(HWND hWnd)
 		ws = ((WSIZE_WIDTH-12)/8)-1;
 	}
 	int vs = (((((WSIZE_WIDTH-12)/8)-2)/4)*3);//48
-	int hs = ((WSIZE_HEIGHT-80)/75);
+	unsigned int hs = ((WSIZE_HEIGHT-80)/75)-1;
 	int wh = FIXParam_Cnt/(int)((WSIZE_WIDTH-2)/135);
 	WCHAR * Disp = new WCHAR[ws+1];
 
 	hdc = GetDC(hWnd);
     hFont = (HFONT)SelectObject(hdc, hUFont);
 
-    for(k=0;k<((hs*4)+(3-wh));k++){		//24行
+    for(k=0;k<(((hs+1)*4)+(3-wh)+2);k++){		//24行
 		j = FstN + k;
-		if(j>= ((hs*4)+(3-wh)))j-=((hs*4)+(3-wh));
 		if(frm_U[j] == 0){//ASCII
-			if((RtnPos[j]!=-1)&&(frmm[RtnPos[j]] != 0)&&(RtnPos[j] < LINGBUF_SIZE)){
-				const char* source = (const char*)&frmm[RtnPos[j]];
+			if((RtnPos[j&0xff]!=-1)&&(frmm[(RtnPos[j&0xff])&LINGBUF_MAX] != 0)){
+				const char* source = (const char*)&frmm[(RtnPos[j&0xff])&LINGBUF_MAX];
 			   	if (source != nullptr) {
         			mbstowcs_s(&ret,Disp,ws,source,ws-1);
     			}
@@ -1676,31 +1687,34 @@ void HexDataREP2(HWND hWnd)
 			Disp[ws] = 0;
 			TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 		}else if(frm_U[j] == 1){//HEX
-			j2 = j;
 			n3 = 0;
-			if((RtnPos[j2+1]!=-1)&&(RtnPos[j2]!=-1)){
-				n2 = RtnPos[j2+1]-RtnPos[j2];
+			if((RtnPos[(j+1)&0xff]!=-1)&&(RtnPos[j&0xff]!=-1)){
+				if((RtnPos[(j+1)&0xff]-RtnPos[j&0xff])>0){
+					n2 = RtnPos[(j+1)&0xff]-RtnPos[j&0xff];
+				}else{
+					n2 = (LINGBUF_SIZE + RtnPos[(j+1)&0xff])-RtnPos[j&0xff];
+				}
 				if(n2 < vs)n2 = vs;
 			}else{
 				n2 = vs;
 			}
-			for(n=0;n<(vs+2+(vs/3));n++)line[n] = 0;
+			for(n=0;n<(vs+2+(vs/3));n++)line[n&0xff] = 0;
 			for(n=0;n<n2;n++){
-				if((RtnPos[j2]!=-1)&&(frmm[RtnPos[j2]+n] != 0)){
-					line[n3] = frmm[RtnPos[j2]+n];
+				if((RtnPos[j&0xff]!=-1)&&(frmm[(RtnPos[j&0xff]+n)&LINGBUF_MAX] != 0)){
+					line[n3&0xff] = frmm[(RtnPos[j&0xff]+n)&LINGBUF_MAX];
  					if(n3%3 == 0){
-						line[vs+1+(n3/3)]
-							= Incharset2((unsigned char *)(frmm+RtnPos[j2]+n));
+						line[(vs+1+(n3/3))&0xff]
+							= Incharset2((unsigned char *)(frmm+RtnPos[j&0xff]+n));
 					} //アスキー表示も右端におまけする
 					n3++;
 				}
 			}
 			while(n3 < vs){
-				line[n3] = 0x20;
+				line[n3&0xff] = 0x20;
 				n3++;
 			}
 			line[vs] = 0x20;
-			line[vs+1+(vs/3)] = 0;
+			line[(vs+1+(vs/3))&0xff] = 0;
 			const char* source = (const char*)&line;
 		   	if (source != nullptr) {
 				mbstowcs_s(&ret,Disp,ws,source,ws-1);
@@ -1710,46 +1724,48 @@ void HexDataREP2(HWND hWnd)
 			Disp[ws] = 0;
 			TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
 		}else{//UTF-8
-			if((RtnPos[j]!=-1)&&(frmm[RtnPos[j]] != 0)){
+			if((RtnPos[j&0xff]!=-1)&&(frmm[(RtnPos[j&0xff])&LINGBUF_MAX] != 0)){
 				i = 0;
 				Disp[0] = 0;
-				while((frmm[RtnPos[j]+i] != 0)&&(frmm[RtnPos[j]+i] != '\n')){
-					if((frmm[RtnPos[j]+i]>0x1f)&&(frmm[RtnPos[j]+i]<0x7f)){
+				while((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] != 0)
+				    &&(frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] != '\n')){
+					if((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]>0x1f)
+					 &&(frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]<0x7f)){
 						/*もし1バイト文字なら*/
 						n = (int)(wcslen(Disp));
 						if(n<ws){
-	        		    	Disp[n] = frmm[RtnPos[j]+i];
+	        		    	Disp[n] = frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX];
 							Disp[n+1] = 0;
 						}
 						if(i<129)i++;
 					}else{
-						if(((frmm[RtnPos[j]+i]&0xff)>=0xC2)
-						 &&((frmm[RtnPos[j]+i]&0xff)<=0xDF)){
+						if(((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]&0xff)>=0xC2)
+						 &&((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]&0xff)<=0xDF)){
 							n = (int)wcslen(Disp);
 							if(n<ws){
-							    Disp[n] = ((frmm[RtnPos[j]+i] & 0x1f)<< 6)
-							    		  |(frmm[RtnPos[j]+i+1] & 0x3f);
+							    Disp[n] = ((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]&0x1f)<<6)
+							    		  |(frmm[(RtnPos[j&0xff]+i+1)&LINGBUF_MAX] &0x3f);
 								Disp[n+1] = 0;
 							}
 							if(i<128)i+=2;
-						}else if(((frmm[RtnPos[j]+i] & 0xff) >= 0xE0)
-							   &&((frmm[RtnPos[j]+i] & 0xff) <= 0xEF)){
+						}else if(((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] & 0xff) >= 0xE0)
+							   &&((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] & 0xff) <= 0xEF)){
 							n = (int)wcslen(Disp);
 							if(n<ws){
-       							Disp[n] = ((frmm[RtnPos[j]+i] & 0x0f) << 12)
-  										 |((frmm[RtnPos[j]+i+1] & 0x3f) << 6)
-  										 | (frmm[RtnPos[j]+i+2] & 0x3f);
+       							Disp[n] =((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]&0x0f)<<12)
+  									 |((frmm[(RtnPos[j&0xff]+i+1)&LINGBUF_MAX]&0x3f)<<6)
+  									 | (frmm[(RtnPos[j&0xff]+i+2)&LINGBUF_MAX]&0x3f);
 								Disp[n+1] = 0;
 							}
 							if(i<127)i+=3;
-						}else if(((frmm[RtnPos[j]+i] & 0xff) >= 0xF0)
-							   &&((frmm[RtnPos[j]+i] & 0xff) <= 0xF4)){
+						}else if(((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] & 0xff) >= 0xF0)
+							   &&((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX] & 0xff) <= 0xF4)){
 							n = (int)wcslen(Disp);
 							if(n<ws){
-		    					Disp[n] = ((frmm[RtnPos[j]+i] & 0x07) << 18)
-		    						 	 |((frmm[RtnPos[j]+i+1] & 0x3f) << 12)
-									 	 |((frmm[RtnPos[j]+i+2] & 0x3f) << 6)
-									 	 | (frmm[RtnPos[j]+i+3] & 0x3f);
+		    					Disp[n] =((frmm[(RtnPos[j&0xff]+i)&LINGBUF_MAX]&0x07)<<18)
+	    						 	 |((frmm[(RtnPos[j&0xff]+i+1)&LINGBUF_MAX]&0x3f)<< 12)
+								 	 |((frmm[(RtnPos[j&0xff]+i+2)&LINGBUF_MAX]& 0x3f)<< 6)
+								 	 | (frmm[(RtnPos[j&0xff]+i+3)&LINGBUF_MAX]&0x3f);
 								Disp[n+1] = 0;
 							}
 							if(i<126)i+=4;
@@ -1771,7 +1787,6 @@ void HexDataREP2(HWND hWnd)
 				}
 				i = (int)(wcslen(Disp));
 				if(i>(ws-1))i=(ws-1);
-			//	for(j=i;j<(ws-1);j++)Disp[j] = L' ';
 				for(j=i;j<ws;j++)Disp[j] = L' ';
 				Disp[ws] = 0;
 				TextOutW(hdc,4,(k*15)+4+((wh+1)*30),Disp,ws);
@@ -1779,24 +1794,22 @@ void HexDataREP2(HWND hWnd)
 		}
 	}
 	
-    for(k=0;k<hs;k++){			//6行
+    for(k=0;k<(hs+1);k++){			//6行
 		j = sFstN + k;
-		if(j > RTN_SIZE)j -= RTN_SIZE;
-		if(sRtnPos[j]!=-1){
+		if(sRtnPos[j&0xff]!=-1){
 			Disp[0] = '>';
 			Disp[1] = 0;
-			if(sfrm_U[j] == 1){//hex
-				if((j+1)>RTN_SIZE){
-					n = (j+1)-RTN_SIZE;
+			if(sfrm_U[j&0xff] == 1){//hex
+				if(sRtnPos[(j+1)&0xff] > -1){
+					p = (sRtnPos[(j+1)&0xff]-1) - sRtnPos[j&0xff];
 				}else{
-					n = j+1;
+					p = 0;
 				}
-				p = (sRtnPos[n]-1) - sRtnPos[j];
 				if(p > (ws/3))p = (ws/3);
 				m = 0;
 				line[0] = 0;
-				for(i=sRtnPos[j];i<sRtnPos[j]+p;i++){
-    				ltohex2((unsigned char)(sfrmm[i]),&line[(m*3)],2);
+				for(i=sRtnPos[j&0xff];i<sRtnPos[j&0xff]+p;i++){
+    				ltohex2((unsigned char)(sfrmm[i&SENDBUF_MAX]),&line[(m*3)],2);
         			line[(m*3)+2] = 0x20;		//2文字ごとに空白文字を入れて見やすく
 					line[(m*3)+3] = 0;
 					m++;
@@ -1806,14 +1819,14 @@ void HexDataREP2(HWND hWnd)
         			mbstowcs_s(&ret,Disp+1,ws,source,ws-1);
     			}
 			}else{
-	    		size_t offset = sRtnPos[j];
-    			const char* source = (const char*)&sfrmm[offset];
+	    		size_t offset = sRtnPos[j&0xff];
+    			const char* source = (const char*)&sfrmm[offset&SENDBUF_MAX];
     			if (source != nullptr) {
         			mbstowcs_s(&ret,Disp+1,ws,source,ws-1);
     			}
     		}
 			i = (int)(wcslen(Disp));
-			for(n=i;n<(ws-1);n++)Disp[n] = L' ';
+			for(n=i;n<ws;n++)Disp[n] = L' ';
 			Disp[ws] = 0;
 			TextOutW(hdc,4,((hs*4)*15)+((wh+1)*30)+4+(15*k),Disp,ws-1);
 		}
@@ -2270,23 +2283,24 @@ int SerialSend(lua_State * L)
 	char * Buf = (char *)lua_tostring(L, 2);
 	len = (int)lua_tonumber(L, 3);
 
-	for(i=0;i<len;i++)SND[ch].buf[i] = (unsigned char)Buf[i];
+	ch &=0x07;
+	for(i=0;i<len;i++)SND[ch].buf[i&0x3ff] = (unsigned char)Buf[i];
 	SND[ch].len = len;
 	switch(COMMPARAM[ch].newline){
 		case 3:
-			SND[ch].buf[SND[ch].len] = '\r';
-			SND[ch].buf[SND[ch].len+1] = '\n';
-			SND[ch].buf[SND[ch].len+2] = 0;
+			SND[ch].buf[(SND[ch].len)&0x3ff] = '\r';
+			SND[ch].buf[(SND[ch].len+1)&0x3ff] = '\n';
+			SND[ch].buf[(SND[ch].len+2)&0x3ff] = 0;
 			SND[ch].len+=2;
 			break;
 		case 2:
-			SND[ch].buf[SND[ch].len] = '\n';
-			SND[ch].buf[SND[ch].len+1] = 0;
+			SND[ch].buf[(SND[ch].len)&0x3ff] = '\n';
+			SND[ch].buf[(SND[ch].len+1)&0x3ff] = 0;
 			SND[ch].len++;
 			break;
 		case 1:
-			SND[ch].buf[SND[ch].len] = '\r';
-			SND[ch].buf[SND[ch].len+1] = 0;
+			SND[ch].buf[(SND[ch].len)&0x3ff] = '\r';
+			SND[ch].buf[(SND[ch].len+1)&0x3ff] = 0;
 			SND[ch].len++;
 			break;
 		default:
@@ -2315,8 +2329,8 @@ int SerialWaitRecv(lua_State * L)
 	int timeout = (int)lua_tonumber(L, 3);
 	
 	while((r == 0)&&(timeout > 0)) {
-		if (COMBUF[ch].len2>0) {	//何かComから受け取ったなら
-			for(i=0;i<COMBUF[ch].len2;i++)Buf2[i] = COMBUF[ch].Buf2[i];
+		if (COMBUF[ch&0x07].len2>0) {	//何かComから受け取ったなら
+			for(i=0;i<COMBUF[ch&0x07].len2;i++)Buf2[i]=COMBUF[ch&0x07].Buf2[i&COMMBUFMAX];
 			if(!(strcmp(Buf2,Buf))){
 				r = 1;
 			}else{
@@ -2339,25 +2353,33 @@ int SerialRecv(lua_State * L)
 	unsigned int r = 0;
 	int len = 0;
 	int ch = (int)lua_tonumber(L, 1);
+	WCHAR Wdummy[32];
 
 	// 受信済みデータがあれば長さを取得（データは COMBUF[ch].Buf2 に保持）
-	if (COMBUF[ch].len2 > 0) {
-		r = (unsigned int)COMBUF[ch].len2;
+	if (COMBUF[ch&0x07].len2 > 0) {
+		r = (unsigned int)COMBUF[ch&0x07].len2;
 	} else {
 		r = 0;
 	}
-	COMBUF[ch].Buf2[0] = 0;
-	COMBUF[ch].len2 = 0;
+	#if(TEST == 1)
+	printf("ch %d r %d\n",ch,r);
+	#endif
+//	COMBUF[ch&0x07].Buf2[0] = 0;
+
+//	_ltow_s(r,Wdummy,32,16);
+//	if(r != 0)MessageBoxW(NULL,Wdummy, L"Hoge", MB_ICONHAND);
+
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
 	if (r > 0) {
 		// Lua に直接 COMBUF の内容をコピーして返す（lua_pushlstring がコピーを行う）
-		lua_pushlstring(L, reinterpret_cast<const char*>(COMBUF[ch].Buf2), r);
+		lua_pushlstring(L, reinterpret_cast<const char*>(COMBUF[ch&0x07].Buf2), r);
 	} else {
 		lua_pushlstring(L, "", 0);
 	}
-    return 2; // 戻り値の数を返す
+	COMBUF[ch&0x07].len2 = 0;
+	return 2; // 戻り値の数を返す
 }
 /*--------------------------------------------------------------------------------*/
 /* シリアルポート受信 Lua文字列内部生成版                                         */
@@ -2376,18 +2398,18 @@ int SerialRecv2(lua_State * L)
 	
 	int ch = (int)lua_tonumber(L, 1);
 
-	if (COMBUF[ch].len2>0) {	//何かComから受け取ったなら
-		r = COMBUF[ch].len2;
+	if (COMBUF[ch&0x07].len2>0) {	//何かComから受け取ったなら
+		r = COMBUF[ch&0x07].len2;
 		luaL_buffinitsize(L, &Buff,r);
 		Buf = luaL_prepbuffer(&Buff);
-		for(i=0;i<COMBUF[ch].len2;i++)Buf[i] = COMBUF[ch].Buf2[i];
+		for(i=0;i<COMBUF[ch&0x07].len2;i++)Buf[i] = COMBUF[ch&0x07].Buf2[i&COMMBUFMAX];
 		r2 = r;
 	}else{
 		luaL_buffinitsize(L, &Buff,0);
 		r = 0;
 	}
-	COMBUF[ch].Buf2[0] = 0;
-	COMBUF[ch].len2 = 0;
+	COMBUF[ch&0x07].Buf2[0] = 0;
+	COMBUF[ch&0x07].len2 = 0;
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
 	luaL_pushresultsize(&Buff,r);
@@ -2403,8 +2425,8 @@ int SerialClear(lua_State * L)
 {
 	int r = 0;
 	int ch = (int)lua_tonumber(L, 1);
-	COMBUF[ch].Buf2[0] = 0;
-	COMBUF[ch].len2 = 0;
+	COMBUF[ch&0x07].Buf2[0] = 0;
+	COMBUF[ch&0x07].len2 = 0;
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
     return 1; // 戻り値の数を返す
@@ -2968,8 +2990,8 @@ int NetSend(lua_State * L)
 	len = (int)lua_tonumber(L, 3);
 	if(len > len2)len = (int)len2;
 	if(ch>4)ch = 0;
-	for(i=0;i<len;i++)SND[5+ch].buf[i]= Buf[i];
-	if(!NET[ch].SendB((unsigned char *)SND[5+ch].buf,len)){
+	for(i=0;i<len;i++)SND[(5+ch)&0x07].buf[i&0x3ff]= Buf[i];
+	if(!NET[ch].SendB((unsigned char *)SND[(5+ch)&0x07].buf,len)){
 		r = 1;
 	}
   	lua_pop(L, lua_gettop(L));
@@ -2996,7 +3018,8 @@ int NetWaitRecv(lua_State * L)
 		}
 	}
 	int timeout = (int)lua_tonumber(L, 2);
-	while((COMBUF[(10+ch)&0x1ffff].len == 0)&&(timeout > 0)) {
+//	while((COMBUF[(10+ch)&0x07].len == 0)&&(timeout > 0)) {
+	while((COMBUF[(5+ch)&0x07].len == 0)&&(timeout > 0)) {
 		Sleep(1000);
 		timeout--;
 		if(timeout == 0)r = 1;
@@ -3027,8 +3050,8 @@ int NetRecv(lua_State * L)
 			}
 		}
 	}
-	if (COMBUF[(5+ch)&0x1ffff].len>0) {	//何かIP Portから受け取ったなら
-		r = COMBUF[5+ch].len;
+	if (COMBUF[(5+ch)&0x07].len>0) {	//何かIP Portから受け取ったなら
+		r = COMBUF[5+ch&0x07].len;
 	}else{
 		r = 0;
 	}
@@ -3036,7 +3059,7 @@ int NetRecv(lua_State * L)
     // 結果をスタックに戻す
   	lua_pop(L, lua_gettop(L));
     lua_pushinteger(L, r);
-	lua_pushlstring (L,(char *)COMBUF[5+ch].Buf,len);
+	lua_pushlstring (L,(char *)COMBUF[(5+ch)&0x07].Buf,len);
     return 2; // 戻り値の数を返す
 }
 /*--------------------------------------------------------------------------------*/
@@ -3070,11 +3093,15 @@ int NetRecv2(lua_State * L)
 		}
 	}
 
-	if (COMBUF[(10+ch)&0x1ffff].len>0) {	//何かIP Portから受け取ったなら
-		r = COMBUF[10+ch].len;
+//	if (COMBUF[(10+ch)&0x1ffff].len>0) {	//何かIP Portから受け取ったなら
+	if (COMBUF[(5+ch)&0x07].len>0) {	//何かIP Portから受け取ったなら
+	//	r = COMBUF[10+ch].len;
+		r = COMBUF[(5+ch)&0x07].len;
 		luaL_buffinitsize(L, &Buff,r);
 		Buf = luaL_prepbuffer(&Buff);
-		for(i=0;i<COMBUF[10+ch].len;i++)Buf[i] = COMBUF[10+ch].Buf[i];
+	//	for(i=0;i<COMBUF[10+ch].len;i++)Buf[i&COMMBUFMAX] 
+		for(i=0;i<COMBUF[(5+ch)&0x07].len;i++)Buf[i&COMMBUFMAX] 
+						= COMBUF[(5+ch)&0x07].Buf[i&COMMBUFMAX];
 	}else{
 		luaL_buffinitsize(L, &Buff,0);
 		r = 0;
@@ -3111,6 +3138,7 @@ int DeviceSeq(lua_State * L)
 
 	if(lua_isnumber(L, 1)){
 		ch = (int)lua_tointeger(L, 1);
+		ch &=0x07;
 	}else{
 		char * name = (char *)lua_tostring(L, 1);
 		for(i=0;i<MDEV.size();i++){
@@ -3182,19 +3210,19 @@ int DeviceSeq(lua_State * L)
 						SND[ch].len = (DWORD)strlen((char *)SND[ch].buf);
 						switch(MDEV[num].delimiter){
 							case 3:
-								SND[ch].buf[SND[ch].len] = '\r';
-								SND[ch].buf[SND[ch].len+1] = '\n';
-								SND[ch].buf[SND[ch].len+2] = 0;
+								SND[ch].buf[(SND[ch].len)&0x3ff] = '\r';
+								SND[ch].buf[(SND[ch].len+1)&0x3ff] = '\n';
+								SND[ch].buf[(SND[ch].len+2)&0x3ff] = 0;
 								SND[ch].len+=2;
 								break;
 							case 2:
-								SND[ch].buf[SND[ch].len] = '\n';
-								SND[ch].buf[SND[ch].len+1] = 0;
+								SND[ch].buf[(SND[ch].len)&0x3ff] = '\n';
+								SND[ch].buf[(SND[ch].len+1)&0x3ff] = 0;
 								SND[ch].len++;
 								break;
 							case 1:
-								SND[ch].buf[SND[ch].len] = '\r';
-								SND[ch].buf[SND[ch].len+1] = 0;
+								SND[ch].buf[(SND[ch].len)&0x3ff] = '\r';
+								SND[ch].buf[(SND[ch].len+1)&0x3ff] = 0;
 								SND[ch].len++;
 								break;
 							default:
@@ -3547,6 +3575,10 @@ int CRC16(lua_State * L)
 	} else {
 		// 空入力ならゼロ長
 	}
+
+	#if(TEST == 1)
+	printf("len %d\n",len);
+	#endif
 	
 	CRC16 = CalCRC_CMD((unsigned short)len, const_cast<unsigned char*>(inBuf));
 	out[len]   = static_cast<char>( CRC16       & 0xff);

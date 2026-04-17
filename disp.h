@@ -5,6 +5,8 @@
 
 #define BUF_SIZE	2048*4
 //#define MAX_CLIENTS	16
+//#define COMMBUFMAX  131071
+#define COMMBUFMAX  65535
 
 /*--------------------------------------------------------------------------*/
 using namespace std;
@@ -224,5 +226,5 @@ extern CRITICAL_SECTION cscom;
 extern std::map<int,char[32]> PortList;
 extern struct dispframe CDSP;
 extern struct serial_param COMMPARAM[5];
-extern struct ComReadBuf COMBUF[6];
+extern struct ComReadBuf COMBUF[8];
 

@@ -1,811 +1,718 @@
-﻿<!--# name-->
-#bincom binary serial monitor ver40
+# About the Binary Monitor bincom v40
 
-<!--## Overview-->
-## binary serial monitor plus Lua / plus device control
+## 1: Overview
+The binary monitor bincom40 is a program that allows control of serial port input/output using the scripting language Lua. This enables emulation of serial-connected devices and automation of testing. Input/output can also be manually operated and confirmed in binary display. Simultaneously, ASCII characters can be displayed and confirmed.  
+This program can operate measuring instruments with serial interfaces, HID USB, and LAN interfaces, provided they are defined in the device definition file, from a Lua script. In particular, for the OWON HDS2102S handheld oscilloscope, data and screen acquisition functions can be used from the Lua script.  
+Up to 5 serial ports can be connected simultaneously. Of these, only ports defined in Config.txt can be manually operated.  
 
-　バイナリモニタbincom40は、シリアルポート入出力をスクリプト言語Luaで制御可能な
-プログラムです。これによりシリアル接続デバイスのエミュレートや、試験の自動化
-などが可能です。また入出力を手動操作可能であり、これらはバイナリ表示で確認可能
-ですログラムです。また同時に、ASCIIキャラクタに関しては同時にキャラクタ表示を
-確認することが可能です。
-　本プログラムはシリアルインタフェイス、HID USB、LANインタフェイスを持つ計測器
-等のうち、デバイス定義ファイルに定義が存在するものについて、Luaスクリプト上から
-操作が可能です。特にOWON HDS2102Sハンディオシロに関してはデータ及び画面取得の
-機能をLauスクリプトから利用可能です。
-　シリアルポートは合計5つまで同時に接続可能です。うちConfig.txtで定義した
-ポートのみ手動操作が可能です。
+### 1.1: Manual Operation
+This program can send data sequences defined in a separate file with simple operations. This program can send characters entered from the keyboard. However, inputs other than return are first stored in a buffer and are not immediately output. The characters you input are displayed at the bottom of the screen. Characters stored in the buffer are sent all at once when the return key is pressed.  
+Pressing the return key repeatedly will send previously entered data repeatedly. All transmitted data characters are displayed at the bottom of the screen. This display shows only characters for keyboard input; other inputs, including repeated transmissions, are displayed in hexadecimal notation.  
+This version provides setting options for controlling signals such as CTS, RTC, DTR, and DSR. Options are also available for automatically adding or removing CR and LF at the end of serial data.  
 
-<!--## Requirement-->
-## Requirement
--MS Windows
+### 1.2: Script Operation
+This program reads the Lua script file defined in Config.txt at startup and operates accordingly. The Lua script's functionality is extended by the functions described later. A predefined function, __Startup()__, is executed only once at startup, and a predefined function, __Loop()__, is executed at defined intervals.  
+The extended function __mkframe()__ generates binary telemetry based on the fixed telemetry frame definition file defined in Config.txt. The register memory space defined within the internal register definition file defined in Config.txt can be freely accessed from Lua scripts using extension functions.  
+These features make it easier to emulate devices with serial interfaces.  
 
-## Features
-## 1.1：手動操作について
-　本プログラムは、別ファイルで定義したデータ列を簡単な操作で送信することが
-できます。本プログラムは、キーボードから入力したキャラクタを送信することが
-できます。ただ、リターン以外の入力はまずバッファに溜められ、即座に出力される
-事はありません。入力したキャラクタは画面下部に表示されます。バッファに溜められた
-キャラクタは、リターンキー入力で一気に送信されます。
-　リターンキーを連続して入力すると、以前に入力したデータが繰り返し送信され
-ます。送信されたデータ・キャラクタはすべて画面下部に表示されます。この表示は、
-キーボードからの入力のみキャラクタで、その他は、繰り返し送信の出力も含めて
-16進表記で表示されます。
-　本バージョンでは、CTS,RTC,DTR,DSRといった信号をコントロールする設定
-オプションが用意されています。また、シリアルデータ終端にCRやLFを自動付与、
-除去するためのオプションが用意されています。
+## 2: Configuration  
+This program requires two files for minimum operation: the executable file bincom40.exe and the configuration file config.txt.  
 
-### 1.2:スクリプト操作について
-　本プログラムはConfig.txtで定義されたLuaスクリプトファイルを起動時に読み込み、
-これに従って動作します。Luaスクリプトは後述する関数によって機能が拡張されて
-います。また、起動時に一度だけ実行される定義済関数Startup()と、定義インターバル
-毎に実行される定義済み関数Loop()が用意されています。
-　拡張関数mkframeはConfig.txtに定義された固定テレメトリフレーム定義ファイルに
-基づいてバイナリテレメトリを生成します。
-　Config.txtに定義された内部レジスタ定義ファイル内で定義されたレジスタメモリ
-空間をLuaスクリプトから拡張関数を用いて自由にアクセスすることができます。
-　これら機能によって、シリアルインタフェイスを持つデバイスのエミュレーションが
-容易になります。
+The transmit data definition file is read and executed at startup if the filename is specified in __config.txt__. If there is no definition in config.txt, it will search for and attempt to read a file named __command.txt__.  
+The Lua script file is read and executed at startup if the filename is specified in config.txt. If the file does not exist, Lua will not run. If there is no definition in config.txt, it will search for and attempt to read a file named __script.lua__. If it does not exist, Lua will not run.  
+The register definition file is read and executed at startup if the filename is specified in config.txt. This is a virtual register definition file that can be used by Lua scripts. If there is no definition in config.txt, it will search for and attempt to read a file named __reg.txt__. If it doesn't exist, Lua cannot use virtual registers.   
+The instrument definition file is loaded at startup, based on the filename specified in config.txt. The instrument definition file further contains command definition files for each device.    
 
-## Setting
-## 2:構成
-　本プログラムは実行ファイルbincom40.exeと、設定ファイルconfig.txtの二つが
-最低限の動作に必要です。
-　送信データ定義ファイルはconfig.txtに記述したファイル名のものを起動時に読み
-込み動作します。もしconfig.txtに定義がなければ、command.txtというファイルを
-探し読み込もうとします。
-　Luaスクリプトファイルはconfig.txtに記述したファイル名のものを起動時に読み
-込み動作します。ファイルが無い場合はLuaの動作はありません。もしconfig.txtに
-定義がなければ、script.luaというファイルを探し読み込もうとします。もし無ければ
-Luaは動作しません。
-　レジスタ定義ファイルはconfig.txtに記述したファイル名のものを起動時に読み込み
-動作します。これはLuaスクリプトが利用できる仮想レジスタ定義のファイルです。
-もしconfig.txtに定義がなければ、reg.txtというファイルを探し読み込もうとします。
-もし無ければLuaは仮想レジスタを利用できません。
-　計測器定義ファイルはconfig.txtに記述したファイル名のものを起動時に読み込み
-ます。計測器定義ファイルは更に各デバイスのコマンド定義ファイルを記述しています。
+#### The file structure at the time of distribution is as follows:
+- bincom40.exe
+- config.txt
+- readme.txt
+- script.lua
+- command.txt
+- tlm.txt
+- reg.txt
+- device_config.txt
+- DM7560_Config.txt
+- PR100_Config.txt
+- KX100L_Config.txt
+- PAT80_Config.txt
+- HDS2102S_Config.txt
+- SPE6102_Config.txt
+- DP100_Config.txt
+- src.zip
 
-　配布時のファイル構成は以下のようになります。
-bincom40.exe
-config.txt
-readme.txt
-script.lua
-command.txt
-tlm.txt
-reg.txt
-device_config.txt
-DM7560_Config.txt
-PR100_Config.txt
-KX100L_Config.txt
-PAT80_Config.txt
-HDS2102S_Config.txt
-SPE6102_Config.txt
-DP100_Config.txt
-src.zip
+readme.txt is this document. src.zip is the complete source code.  
+This program can be compiled with Microsoft Visual C++ 2022 Express Edition.   
 
-　readme.txtは本文書です。src.zipはソースコード一式です。
-　本プログラムはMicrosoft VisualC++2022 ExpressEditionでコンパイル可能です。
+## 3: Settings
+Before starting this program, you can configure one of the serial ports and its baud rate in Config.txt. You can also change the baud rate of this port at any time during program operation.  
+Settings before program startup are done in a text file named config.txt, located in the same folder as the bincom executable file.  
+Please save config.txt with UTF-8 encoding.  
+
+The string enclosed in double quotes ("") in the __PROGRAM_TITLE__ line will be the program title.  
+Please place one or more spaces between __PROGRAM_TITLE__ and the double quotes.  
+
+The __Interval__ line allows you to specify the execution interval of the predefined function Loop in the Lua script (and the transmission interval unit for messages with the keyword INTERVAL defined in command.txt, common to both the execution interval and timing) in milliseconds.  
+
+The __DATAFOLDER__ line allows you to specify the folder name for saving register snapshot data among the save data. This will be the name of the folder created above the folder where the program is located. Please create a folder with the same name beforehand.
+
+Register snapshot data is generated once each time you press the [REGSAVE 0] button in the menu bar at the top of the program screen.
+
+The file name will be DATA0.dat. If a file with the same name already exists in the folder, it will be overwritten. The button in the menu bar will change to [REGSAVE 1], but pressing this button will save the register contents at that time to a file named DATA1.dat. In other words, the button number and the file name correspond.
 
 
-## Conig
-## 3:設定
-　本プログラム起動前に、Config.txtでシリアルポートのうち1つのポートと
-ボーレートの設定が可能です。また、プログラム動作中の任意のタイミングで、
-このポートのボーレートを変更することができます。
-　プログラム起動前の設定は、bincom実行ファイルと同じフォルダに置いた、
-config.txtというテキストファイルで行います。
-  config.txtの文字コードはUTF-8で保存してください。
+The register snapshot file is output in text file format.
 
-　PROGRAM_TITLE の行に""で括った文字列を書けば、これがプログラムタイトルに
-なります。
-　PROGRAM_TITLE と""の間には、一文字以上の 空白文字を置いてください。
+First, the defined register names from the register definition file are output, and then the register contents are output in ascending order of device ID.
 
-　Interval の行では、Luaスクリプトの定義済み関数Loopの実行間隔(とタイミング
-共通の、command.txtで定義したメッセージのうちキーワードINTERVALを指定した
-メッセージの送出間隔単位)をミリ秒単位で指定することができます。
+The register contents are displayed with the address (hexadecimal notation) at the beginning of each line, followed by the sequence of data within the register (hexadecimal notation) separated by a colon (:). Each entry is separated by a comma (,).
 
-　DATAFOLDER の行には、セーブデータのうち、レジスタのスナップショットデータを
-保存するフォルダ名を指定することができます。これはプログラムの置かれた
-フォルダの上につくられるフォルダ名となります。あらかじめ同じ名前のフォルダを
-作ってください。
 
-　レジスタのスナップショットデータは、プログラム画面上方、メニューバーにある
-[REGSAVE 0]というボタンを押すごとに一回づつ生成されます。
-　ファイル名はDATA0.datというものになります。同名のファイルがフォルダに存在
-した場合は上書きされます。メニューバーのボタンは[REGSAVE 1]と変わりますが、
-この状態でボタンを押すと、その時点のレジスタの内容が、DATA1.datというファイル
-に保存されます。つまり、ボタン上の番号とファイル名は対応しています。
+The __LOGFOLDER__ line allows you to specify the folder name where the received log data will be saved. This will be the name of the folder created above the folder where the program is located. Please create a folder with the same name beforehand.
 
-　レジスタのスナップショットファイルは、テキストファイル形式で出力されます。
-　最初にレジスタ定義ファイルでの定義レジスタ名が出力され、以降、
-機器IDの若い順にレジスタ内容が出力されます。
-　レジスタ内容は行先頭にアドレス(16進表記)、：で区切って以降レジスタ内の
-データの並び(16進表記)となります。それぞれは,で区切られています。
+The received log data file is generated and saved by pressing the [LOGSAVE] button in the menu bar at the top of the program screen. The save format is binary. The file name starts with LOG0.dat, and a unique file name is generated within the folder, preventing file overwriting.
+Pressing [STOP] in the menu bar stops saving.
 
-　LOGFOLDER の行には、セーブデータのうち、受信ログデータを保存するフォルダ名を
-指定することができます。これはプログラムの置かれたフォルダの上に
-つくられるフォルダ名となります。あらかじめ同じ名前のフォルダを作ってください。
+The serial port is specified by adding one or more spaces after the string "port" written at the beginning of the line, followed by a number.
 
-　受信ログデータのファイルは、プログラム画面上方、メニューバーにある[LOGSAVE]
-というボタンを押すことで生成、保存が開始されます。保存形式はバイナリ
-フォーマットです。ファイル名はLOG0.datから始まって、フォルダ内で重複の無い
-ファイル名が生成され、ファイルの上書きをしません。
-メニューバーの[STOP    ]を押すと保存が停止されます。
+__port 1__
 
-　シリアルポートの指定は、行頭から書かれた"port"という文字列の後ろに、一つ以上
-の半角空白を置いて、数字で指定します。
+The baud rate is specified by adding one or more spaces after the string "baud" written at the beginning of the line, followed by a number.
 
-port 1
+__baud 19200__
 
-　ボーレートの指定は、行頭から書かれた"baud"という文字列の後ろに、一つ以上の
-半角空白を置いて、数字で指定します。
+When using a USB serial conversion device, specifying the USB VID, PID, and device-specific serial number will automatically connect to a matching device. This is particularly useful for devices with consistent, unchanging device-specific serial numbers, such as FTDI devices, as port numbers tend to change. When using this function, specify "USB" for the port.
 
-baud 19200
-
-　USBシリアル変換デバイスを使用する場合、USB VID,PID及びデバイス固有シリアルを
-指定することで、一致するデバイスに自動接続します。これはポート番号が変化しやすい
-のに対して、特にFTDI社製デバイスのような、変化しない一貫したデバイス固有シリアル
-を持つデバイスを指定して接続ができます。この機能を使う場合、portには"USB"と
-指定してください。
-
-port USB
-
+__port USB__
+~~~
 USB_VID "0x0403"
 USB_PID "0x6015"
 USB_SERIAL "DK0G0GKM"
+~~~
+These parameters can be found in Device Manager.
 
-　これらパラメータはデバイスマネージャから確認できます。
-　ポート(COMとLPT)->USB Serial Port(COMX)->プロパティ->詳細->デバイス インスタンス パス
-  値(V)から、VID_0403 から0x0403を、PID_6015 から0x6015を、+DK0G0GKMAから
-　DK0G0GKMを取り出す。
+From Ports (COM & LPT) -> USB Serial Port (COMX) -> Properties -> Details -> Device Instance Path Value (V), extract 0x0403 from VID_0403, 0x6015 from PID_6015, and DK0G0GKM from +DK0G0GKMA, and set these as the __USB_SERIAL__ parameter.
 
+The parity bit is specified by placing one or more spaces after the string "parity" written at the beginning of the line, and using the following keywords.
 
-　パリティビット指定は、行頭から書かれた"parity"という文字列の後ろに、一つ以上
-の半角空白を置いて、以下のキーワードを使って指定します。
+~~~
+parity no # No parity
+parity odd # Odd parity
+parity even # Even parity
+~~~
+Stop bits are specified by placing one or more spaces after the string "stopbits" written at the beginning of the line, and using the following keywords:
+~~~
+stopbits one # 1 bit
+stopbits onehalf # 1.5 bits
+stopbits two # 2 bits
+~~~
+Control signal control is specified by placing one or more spaces after the string "modem" written at the beginning of the line, and specifying either on or off:
 
-parity no 		# パリティ無し
-parity odd		# 奇数パリティ
-parity even		# 偶数パリティ
+__modem on__
 
-　ストップビット指定は、行頭から書かれた"stopbits"という文字列の後ろに、一つ
-以上の半角空白を置いて、以下のキーワードを使って指定します。
+Newline insertion is specified by placing one or more spaces after the string "newline" written at the beginning of the line, and using the following keywords:
 
-stopbits one		# 1ビット
-stopbits onehalf	# 1.5ビット
-stopbits two		# 2ビット
+~~~
+newline none # Do not add a newline to the transmitted data
+newline CRLF # Add CRLF
+newline CR # Add CR
+newline LF # Add LF
+~~~
+This program has a function to periodically check if a port is open and reopen it if it is closed. This function can be turned ON/OFF.
+To specify this function, place one or more spaces after the string "Openport_mode" written at the beginning of the line, and then specify the following keywords.
+~~~
+Openport_mode startonce # Normal
+Openport_mode check # Periodically check if the port is open
+~~~
+The character "#" indicates a comment. Everything from # to the end of the line is interpreted as a comment.
+~~~
+port 1 # This is a comment
+#port 2 # Commented out
+~~~
+Baud rate during program operation
 
-　制御信号コントロールの指定は、行頭から書かれた"modem"という文字列の後ろに、
-一つ以上の半角空白を置いて、onかoffかで指定します。
+Changes are made from "Edit." in the program's menu bar. A dialog window will open; enter a sequence of numbers in half-width characters in the edit box and press the OK button.
 
-modem on
+The __Display__ line allows you to change the display format of the lower part of the screen.
 
-　改行挿入の指定は、行頭から書かれた"newline"という文字列の後ろに、一つ以上の
-半角空白を置いて、以下のキーワードを指定します。
+__Display hex__ displays received data in hexadecimal.
 
-newline none #送出データに改行を追加しない
-newline CRLF #CRLFを追加する
-newline CR   #CRを追加する
-newline LF   #LFを追加する
+__Display Text__ displays received data in text format.
 
-　本プログラムは定期的にポートが開いているかチェックして、閉じたなら開きなおす
-機能を有しており、この機能をON/OFF可能です。
-　この機能の指定は、行頭から書かれた"Openport_mode"という文字列の後ろに、一つ
-以上の半角空白を置いて、以下のキーワードを指定します。
+__Display lua__ delegates the entire display to Lua.
 
-Openport_mode startonce #通常
-Openport_mode check     #定期的にポートが開いたかチェックしにゆく
+The __FIXParam_Display__ line allows you to change the number of items displayed in the fixed parameter display section at the top of the screen, from none to 36.
 
+The fixed parameter display section displays in two lines: the parameter name on the top line and the parameter value on the bottom line. These two lines constitute one parameter line.
 
-　文字"#"はコメント指示です。#から行末までが、コメントとして解釈されます。
+The size of the central display section will decrease or increase by the amount of the parameters increased or decreased.
 
-port 1 #ここはコメント
-#port 2 #コメントアウト
+The __MEASURE_DEVICE__ line allows you to specify the filename of the instrument definition file to load. The __SCRIPT__ line allows you to specify the filename of the Lua script to load.  
+This is useful when you have multiple scripts and want to switch between them.  
+The __CMD__ line allows you to specify the filename of the transmit data definition to load.  
+The __TLM__ line allows you to specify the filename of the telemetry definition to load.  
+The __REG__ line allows you to specify the filename of the register definition to load.  
 
-　プログラム動作中のボーレート変更は、プログラムのメニューバの"Edit.."から行い
-ます。ダイアログウィンドウが開かれますので、エディットボックスに半角数列を入れ
-てOKボタンを押してください。
+## 4: About Instrument Definition Files
 
-Display の行で、画面表示下側の表示フォーマットを変えることができます。
-Display hex は、16進表示で受信データを表示します。
-Display Text は、テキスト表示で受信データを表示します。
-Display lua  は、表示の全てをLuaに委ねることになります。
+You can operate on devices defined in the instrument definition file from within a Lua script.
+Instrument definitions are grouped together from the keyword  __DEVICE__ at the beginning of a line to the keyword __DEVICE_END__ at the beginning of a line, and linked to the device name written after the keyword __DEVICE__. Furthermore, you can enable/disable the instrument definition using the __on / off__ keyword immediately following the device name.  
+Various instrument definitions are defined using the following keywords:  
 
-FIXParam_Display の行で、画面表示上部の固定パラメータ表示区画の表示個数を
-　無しから36個までの範囲で変えることが出来ます。
-　固定パラメータ表示区画は表示2行、上行にパラメータ名、下行にパラメータの値
-というペアで表示をおこないます。この2行でパラメータ1行です
-　パラメータを増減した分だけ、中央の表示区画のサイズが減増します。
+__DEVICE_SETTING__ Reads the file specified immediately after this line.  
+__DEVICE_MAKER__ Specify the manufacturer's name.  
+This is optional. The predefined manufacturer names are as follows:  
+_YOKOKAWA, KIKUSUI, HP, KEYSIGHT, KEISOKU, FTDI, OWON, MATSUSADA, TAKASAGO, ALIENTEK, DUMMY_  
+__DEVICE_TYPE__ Specifies the connection method by number.  
+_1:serial 2:IVI 3:USB HID 4:LAN 5:GPIB 6:FTDI BitBang 7:HID DP100_  
+This program does not support IVI, GPIB, or FTDI BitBang.  
+__DEVICE_DELIMITER__ Specifies line break insertion  
+The keyword for specification is the same as in Config.txt  
+__DEVICE_COMPORT__ Specifies the serial port number  
+Three types can be specified: numbers, uppercase letters, and none. For example, if __DEVICE_COMPORT A__ is specified, a connection will be made using the PID, VID, and device serial number described below.
+If none is specified, the port specification from within the lua script takes precedence.  
+In this case, the connection using the PID, VID, and device serial number takes precedence.  
+__DEVICE_COMBAUD__ Specifies the communication speed. If __DEVICE_COMPORT__ is none, the speed specification within the lua script takes precedence.  
+__DEVICE_VISA_ADDR__ Not supported in this program.  
+__DEVICE_LANADDR__ Specifies the IPv4 address of the target device. Enclose it in "".  
+__DEVICE_LANPORT__ Specifies the port number of the target device.  
+__DEVICE_GPIBPORT__ This program does not support this.  
+__DEVICE_VID__ Used to uniquely identify USB devices in the USB serial converter.  
+__DEVICE_PID__ Used to uniquely identify USB devices in the USB serial converter.  
+__DEVICE_SERNUM__ Used to uniquely identify USB devices in the USB serial converter. Please enclose it in quotation marks ( __"__ ).  
+The defined devices can be accessed by specifying the device name written after the keyword DEVICE in the Lua script's extension functions. If an uppercase letter is specified for the serial port number, individual access is possible using that letter.  
 
-MEASURE_DEVICE の行で、読み込む計測器定義ファイルのファイル名を指定することが
-できます。
+In the file specified by the keyword __DEVICE_SETTING__, you can define commands that can be used with the Lua extension function DeviceSeq.  
+The syntax is as follows:  
 
-SCRIPT の行で、読み込むLuaスクリプトのファイル名を指定することができます。
-　複数のスクリプトを作って、切り替えて使う場合などに使えます。
+Write the device name at the beginning of the file, after the keyword __NAME__ at the start of the line. This must match the device name in the instrument definition file.  
 
-CMD　の行で、読み込む送信データ定義ファイル名を指定することができます。
+Instructions are issued one line at a time by adding a keyword after the keyword __CMD__ at the beginning of the line. These multiple lines constitute a single instruction within the range enclosed by __CMD NAME__ to __CMD END__. Instructions can be specified using the command name specified by __CMD NAME__. Basically, the message sent to the device is written after __CMD__. It can also include up to three parameters of three types: __P1, P2, and P3__. Parameters can be written as the third and subsequent arguments of the DeviceSeq function.  
+~~~
+CMD SLEEP inserts a sleep for the specified number of seconds at the time of writing.
+CMD MWAIT inserts a sleep for the specified number of milliseconds at the time of writing.
+CMD VOLT, CMD STOP, CMD INFO, CMD ACT, and CMD READ are DP100-specific instructions.
+~~~
+The keyword __INIT__ at the beginning of the line is used to define the instruction configuration used for initialization, and only one such configuration can be used in a file. __INIT__ is written in the same way as __CMD__.
 
-TLM　の行で、読み込むテレメトリ定義ファイル名を指定することができます。
+## 5: About the Transmission Data Definition File
 
-REG　の行で、読み込むレジスタ定義ファイル名を指定することができます。
+By preparing a transmission data file written in a specified format, you can send various types of data.
 
+The format is as follows:
+~~~
+SEND 0x55 0xaa 65000 0b01010011 CRC "hoge" INTERVAL 10 LABEL "hoge"
+~~~
+If the characters __"SEND"__ appear at the beginning of a line, that line is interpreted as transmission data. From there until the newline character, the description interpreted as transmission data is held as a single unit and sent simultaneously.
 
-## 4:計測器定義ファイルについて。
+One or more spaces are required after the characters __SEND__. Tabs are also acceptable, but full-width spaces cannot be used. Spaces are also used as data separators from there onward.
 
-　計測器定義ファイルに定義されたデバイスに対してLuaスクリプト上から操作する
-ことができます。
-　計測器定義は 行頭のキーワードDEVICEから、行頭のキーワードDEVICE_ENDの間に
-の記述をひとまとめとして、キーワードDEVICEの後ろに記述されたデバイス名と
-紐付けます。更にそのデバイス名の直後の on / off キーワードで、計測器定義を
-有効化/無効化することができます。
-　計測器の各種定義は、以下のようなキーワードを使って定義されます。
-DEVICE_SETTING この直後に書かれたファイル名のファイルを読み込みます。
-DEVICE_MAKER メーカ名を記載します。なくても構いません。定義済みメーカー名は
-             次のようになります。 YOKOKAWA,KIKUSUI,HP,KEYSIGHT,KEISOKU,FTDI,
-             OWON,MATSUSADA,TAKASAGO,ALIENTEK,DUMMY
-DEVICE_TYPE  接続方法を番号で指定します。1:serial 2:IVI 3:USB HID 4:LAN 5:GPIB
-			 6:FTDI BitBang 7:HID DP100
-             本プログラムでは IVI,GPIB,FTDI BitBangをサポートしません。
-DEVICE_DELIMITER 改行挿入の指定
-                 指定のためのキーワードはConfig.txtのものと同じ
-DEVICE_COMPORT シリアルポートのポート番号指定 数字、アルファベット大文字、noneの
-　　　　　　　三種が指定できる。例えば DEVICE_COMPORT A とした場合、後述の
-              PID,VID,デバイスシリアル番号を使用した接続をおこなう。
-　　　　　　　noneとした場合はluaスクリプト内からのポート指定が優先される。
-　　　　　　　この場合、PID,VID,デバイスシリアル番号を使用した接続が優先される。
-DEVICE_COMBAUD 通信速度指定。DEVICE_COMPORTがnoneの場合はluaスクリプト内の
-　　　　　　　速度指定が優先される。
-DEVICE_VISA_ADDR 本プログラムではサポートしません。
-DEVICE_LANADDR  ターゲットデバイスのIPv4アドレスを指定します。""で囲んでください。
-DEVICE_LANPORT  ターゲットデバイスのポート番号を指定します。
-DEVICE_GPIBPORT 本プログラムではサポートしません。
-DEVICE_VID USBシリアル変換でUSBデバイスを固有識別するのに使用します。
-DEVICE_PID USBシリアル変換でUSBデバイスを固有識別するのに使用します。
-DEVICE_SERNUM USBシリアル変換でUSBデバイスを固有識別するのに使用します。
-              ""で囲んでください。
-　定義されたデバイスへはLuaスクリプトの拡張関数に、キーワードDEVICEの後ろに記述
-されたデバイス名を指定することによってアクセスが可能となります。シリアルポート
-番号指定でアルファベット大文字を指定した場合は、そのアルファベットで個別アクセスが
-可能になります。
+The following are examples of valid definitions for the description:
 
+- 1: Hexadecimal representation in 1-byte units. A prefix of 0x indicates hexadecimal representation.
+- 2: Binary representation in 1-byte units. A prefix of 0b indicates binary representation.
+- 3: Decimal representation for 1 to 4 bytes.
+- 4: String. Strings enclosed in double quotes are valid.
 
-キーワードDEVICE_SETTING で指定したファイルでは、Luaの拡張関数DeviceSeqを用いて
-利用可能な命令を定義することができます。
-文法は以下の通りです。
+The keyword __INTERVAL__ declares that the transmission data sequence will be sent periodically thereafter. The transmission interval is specified by the number after the keyword. The unit is seconds.
 
-ファイル先頭に一つ、行頭のキーワードNAMEの後ろに、デバイス名を書きます。これは
-計測器定義ファイルのデバイス名と一致させる必要があります。
+The keyword __LABEL__ allows you to change the display in the __SEND__ pull-down menu on the toolbar to the description indicated by __LABEL__. If __LABEL__ is not present, the pull-down menu will display the transmission data converted to hexadecimal; __LABEL__ replaces this.
 
-命令は行頭キーワードCMDの後ろに更にキーワードを付けることで、これが1行づつ発行
-されることになります。これら複数行が、CMD NAME からCMD ENDで囲まれた範囲でひとつの
-命令を構成します。命令は CMD NAMEで指定したコマンド名で指定が可能になります。
-CMD の後ろには基本的にデバイスに送出されるメッセージを記述します。またパラメータを
-3つまで、P1,P2,P3の三種を含むことが出来ます。パラメータはDeviceSeq関数の引数の
-三番目以降に記述することができます。
-CMD SLEEPは記述タイミングで指定秒スリープが入ります。
-CMD MWAITは記述タイミングで指定ミリ秒スリープが入ります。
-CMD VOLT、CMD STOP、CMD INFO、CMD ACT、CMD READはDP100固有命令です。
-行頭キーワードINITは、ファイル内で一つだけ、初期化に用いる命令構成を定義するために
-使います。INITはCMDと同じように記述します。
+Comments can also use Japanese (UTF-8).
 
+The keyword __CRC__ replaces this with a 2-byte CCITT-16 CRC and inserts it into the transmitted data sequence. The byte order is lower-order, then higher-order.
 
-## 5:送信データ定義ファイルについて。
+The character __"#"__ indicates a comment. Everything from '#' to the end of the line is interpreted as a comment. Japanese (UTF-8) characters can also be used in comments.
 
-　決められた書式で記述された送信データファイルを用意しておくことで、様々なデータ
-送信を行うことができます。
+If valid transmitted data definitions exist, a "SEND" menu will appear in the program's menu bar. From here, you can select the data you want to send from the submenu to enable transmission.
 
-　書式は以下の通り
+Note that all data in the submenu is displayed in hexadecimal.
 
-SEND 0x55 0xaa 65000 0b01010011 CRC "hoge" INTERVAL 10 LABEL "ほげ"
+This program can also read various other transmitted data definition files.
 
-　行頭に"SEND"という文字があると、その行は送信データとして解釈されます。以降
-改行まで、送信データとして解釈された記述はひとかたまりとして保持され、同時に
-送信されます。
-　SENDの文字の後ろには半角スペース一つ以上の空白が必要です。タブでも構いません
-が、全角空白は使用できません。以降も、データの区切りとして空白が使用されます。
+At the end of the submenu under the SEND menu in the menu bar, there is a "ReadCMDFile" menu. Selecting this allows you to choose other files.
 
-　記述として合法な定義は以下のようなものがあります。
+## 6: About Telemetry Definition Files.
 
-1：1バイト単位の16進表記　最初に0xがつくと16進表記として解釈されます。
-2：1バイト単位の2進表記　最初に0bがつくと2進表記として解釈されます。
-3：1～4バイトまでの10進表記
-4：文字列　"で囲まれた文字列が有効です"
+A telemetry definition file is a collection of definitions for each telemetry item. Each item corresponds to its order from the beginning of the parameter array passed to the extension function `mkframe`. It is recommended to assign sequential numbers starting from 1 to each item as comments.
 
-　キーワードINTERVALは、送信データ列を以降定期的に送出することの宣言です。送出
-間隔はキーワードの後ろの数字で指定します。単位は秒です。
+Each item is defined by the keyword __TLM__ followed by the item name, enclosed in curly braces {}. The {} contains the item type specified by the keyword __TYPE__ and the elements specified by the keyword __PART__. __PART__ can contain multiple elements.
 
-　キーワードLABELは、ツールバーのSENDプルダウンメニュー中の表記を、LABELで
-示された記述にすることができます。LABELが無い場合、プルダウンメニューの内容は、
-送信データを16進数に直したものとなりますが、LABELはこれを置き換えます。
-コメントには日本語(UTF-8)も使用可能です。
+The __PART__ element within the {} contains the content specified by the keywords __MAJOR, MINOR, MASK, and SHIFT__.
 
-　キーワードCRCは、これを2バイトのCCITT-16 CRCと置換して送信データ列に挿入し
-ます。バイト順は下位、上位の並びになります。
+The keyword __MAJOR__ specifies the position from the beginning of a fixed-length telemetry frame. This is in bytes.
 
-　文字"#"はコメント指示です。#から行末までが、コメントとして解釈されます。
-コメントには日本語(UTF-8)も使用可能です。
+The keyword __MINOR__ specifies the minor frame number when a minor frame is specified. While 16 minor frames are assumed, it supports 16 or fewer frames.
 
-　これら有効な送信データ定義が存在した場合、プログラムのメニューバーに"SEND"と
-いうメニューが登場します。ここからサブメニューで、送信したいデータを選ぶ
-ことで、送信が可能になります。
-　なお、サブメニューでは、データは全て16進で表示されます。
+If minor frames are not used, it is recommended to set all bits to 1.
 
-　本プログラムは、別のさまざまな送信データ定義ファイルを読み込むこともでき
-ます。
-　メニューバのSENDメニュー以下のサブメニューの最後に、"ReadCMDFile"という
-メニューが存在します。これを選択することで、他のファイルを選択することができます。
+The keyword __MASK__ indicates the valid bit range when retrieving and storing data from a parameter array. This is easier to understand when combined with the following item, __SHIFT__. For example, suppose you want to store a 1-bit flag in telemetry, one bit at a time. The original flag variable is either 0 or 1. The __SHIFT__ instruction moves it to the telemetry storage location, and __MASK__ is used to prevent other values ​​from being placed there. The value is then stored using a logical AND operation.
 
+For example, to place a value into a specified bit at a certain byte position in the telemetry:
+~~~
+A |= (flag_1bit << SHIFT) & MASK
+~~~
+The keyword __SHIFT__ specifies the amount of bit shift to be performed on the parameter array values.
 
-## 6:テレメトリ定義ファイルについて。
+Each __PART__ element describes telemetry storage of up to 8 bits. For example, if the original data was 32 bits, four __PART__ elements are required.
 
-　テレメトリ定義ファイルは、テレメトリ各項目の定義の集合体となっています。各項目へは
-拡張関数mkframeに渡すパラメータ配列の先頭からの順番と対応しています。各項目には1から
-始まる連番をコメントで付与することを推奨します。
-各項目の定義は、キーワードTLMを先頭として次に項目名で区別し、括弧{}で囲った内容で
-定義される。{}の中には、キーワードTYPEに記述する項目タイプと、キーワードPARTで
-記述する要素を含む。PART要素は複数含むことがある。
-PART要素は{}の中に、キーワードMAJOR,MINOR,MASK,SHIFTで記述する内容を含む。
-キーワードMAJORは、固定長テレメトリフレームの先頭からの位置を指定する。これはバイト単位である。
-キーワードMINORは、マイナーフレーム指定時のマイナーフレーム番号を指定する。マイナーフレームは16フレームを想定しているが、16フレーム以下なら対応する。
-　　　マイナーフレームを採用していない場合は、全ビット1を立てておくことを推奨する。
-キーワードMASKは、パラメータ配列からデータを取り出し格納する際の有効ビット範囲を示す。
-      これは次の項目SHIFTを組み合わせると理解しやすい。例えば1ビットのフラグを、1ビット
-	  づつテレメトリに格納するとする。
-　　　元のフラグ変数は0か1か、これをSHIFTの指示でテレメトリの格納位置まで移動させて、
-　　　MASKを使って他の値が入らないようにして論理AND演算で値を格納する。
-　　　例として、テレメトリ上のあるバイト位置の指定ビットに値を入れる場合：
-　　　A |= (flag_1bit << SHIFT) & MASK
-キーワードSHIFTは、パラメータ配列の値をビットシフトする量を指定します。
-PART要素は一つにつき最大8bitまでのテレメトリ格納を記述する。例えば元のデータが32bit
-あった場合、4つのPART要素が必要となる。
-PART要素、TYPE要素は、字下げして記述することを推奨する。
+_The _PART__ and __TYPE__ elements should be indented.
 
-　項目TYPEで使用するキーワードはファイル先頭にまとめて記述することを推奨する。
-フォーマットは以下の通り：
-キーワードDEF,空白,キーワード名,空白,値(実数)
-例：
+Keywords used in the __TYPE__ field should be grouped together at the beginning of the file.
+
+The format is as follows:
+
+__keywordDEF,space,keywordname,space,value(real number)__
+
+Example:
+~~~
 DEF SYS 0
+~~~
+Everything from '#' to the end of the line is commented out.
 
-#から後ろ、行末までコメントアウトとなる。
+## 7: About Register Definition Files.
 
+Details will be explained in 8.4.
 
-## 7:レジスタ定義ファイルについて。
+## 8: Lua Script Settings
 
-　8.4で詳しく説明します。
+### 8.1: Simple Usage
 
+#### 8.1.1:
+Find the number of an available serial port and replace the part that says
 
-## 8:Luaスクリプト設定
+__SerialInit(0,10,115200)__
 
-###8.1:簡単な使い方
+(around line 104) with the number you found. 
+~~~
+Example: SerialInit(0,3,115200)
+Example: SerialInit(0,A,115200)
+~~~
+If the port is already open, it will not be opened again. If the script attempts to open a different port and specifies a non-existent port, the port opening will fail.
 
-####8.1.1:使えるシリアルポートの番号を調べて、script.luaの中の
-	SerialInit(0,10,115200)
- 　と書いてある部分(104行目あたり)の、SerialInit(0,"この部分",115200)を
-　 調べた番号に書き換えてください。
-例：SerialInit(0,3,115200)
-例：SerialInit(0,A,115200)
+#### 8.1.2:
+If you start the program and see "Init OK" on the screen, it is working correctly.
 
-   既にポートが開かれている場合は改めてポートが開かれることはありません。
-スクリプトが別のポートを開こうとして存在しないポートを指定した場合は
-ポートを開くのに失敗したままとなります。
+#### 8.1.3:
+Pressing [LOGSAVE] on the toolbar at the top of the screen will record data received from the serial port, such as commands, to a file. The file will be created in a folder named "LOG".
 
-####8.1.2:プログラムを起動して、画面にInit OKと出ているのが確認できたならば
-　 ちゃんと動いています。
+#### 8.1.4:
+Pressing [REGSAVE 0] on the toolbar at the top of the screen will output the state of the device registers that are virtually held internally to a file. A file is created each time the button is pressed.
+The file name will be numbered, such as DATA0.dat, and this number will automatically increment each time a file is created.
 
-####8.1.3:画面上のツールバー、[LOGSAVE]を押すと、シリアルポートから受信した
-    データ、例えばコマンドなどがファイルに記録されます。
-　　ファイルはLOGというフォルダ内につくられます。
+#### 8.1.5:
+When a command is received, the received value is displayed on the screen in hexadecimal. Please check whether the registers were modified by the command by saving the register state as appropriate.
 
-####8.1.4:画面上のツールバー、[REGSAVE 0]を押すと、内部に仮想的に持っている
-　　機器レジスタの状態をファイルに出力します。ファイルはボタンを押す
-　　たびに作られます。
-　　ファイル名は DATA0.datという感じに番号が付いて、この番号はファイルを
-　　作るたびに自動的に増えていきます。
+### 8.2: About the Lua Language
 
-####8.1.5:コマンドを受信すると、画面に受信した値が16進数で表示されます。
-　　コマンドでレジスタが書き換わったか、レジスタ状態を適示保存して
-　　確認してください。
+Lua ​​is a lightweight scripting language suitable for embedded systems.
 
-###8.2:lua言語について
+The website URL is shown below.
 
-　Lua言語は軽量で組み込みに適したスクリプト言語です。
-　サイトURLを以下に示します。
 https://www.lua.org/
-　以下のサイトなどが文法解説などまとまっている。
+
+The following site provides a summary of grammar explanations, etc.
+
 https://ie.u-ryukyu.ac.jp/~e085739/lua.hajime.html
-　使用したバージョンは5.4.1です。
 
-###8.3:Lua言語の拡張について
+The version used is 5.4.1.
 
-このLua処理系は以下のように独自拡張されています。
+### 8.3: About Lua Language Extensions
 
-A:以下の関数が追加されています。
-DispStrP()
- 引数無し、戻り値無し。先にグローバル変数Dispstr,Displenにテキストとその
-文字列長を入れて呼び出すと、画面にテキストが表示される。
-　例：
-	Dispstr = "Init OK"
-	Displen = 7
-	DispStrP( )
+This Lua interpreter has been uniquely extended as follows:
 
-DispParamlP(ch,Label, Data)
- 引数:ch 表示位置 ,Label 文字列, Data 整数 戻り値は特になし。
- 画面の上部固定位置にラベル文字列とデータ(整数値)の二段でテキストが表示される。
- パラメータの表示などに用いることを想定している。データは10進表示となる。
-　固定表示位置は　横に4つ、3段の計12種類の表示となる。従ってchの値は0～11と
-なる。
-　例：
-	DispParamlP(0,"Count",count)
-	count = count + 1
+#### A: The following function has been added.
 
-　但し、全12chが表示されるのはFIXParam_Displayに12を指定した時のみとなる。
-FIXParam_Displayが0の場合は関数実行によっても表示は全ておこなわれない。
+##### __DispStrP()__
 
-DispParamfP(ch,Label, Data)
- 引数:ch 表示位置 ,Label 文字列, Data 浮動小数点数 戻り値は特になし。
- 画面の上部固定位置にラベル文字列とデータ(小数点値)の二段でテキストが
-表示される。
- パラメータの表示などに用いることを想定している。データは10進表示となる。
-　固定表示位置は　横に4つ、3段の計12種類の表示となる。従ってchの値は0～11と
-なる。
-　但し、全12chが表示されるのはFIXParam_Displayに12を指定した時のみとなる。
-FIXParam_Displayが0の場合は関数実行によっても表示は全ておこなわれない。
+No arguments, no return value. If you first put text and its length into the global variables Dispstr and Displen and call this function, the text will be displayed on the screen.
+
+Example:
+~~~
+Dispstr = "Init OK"
+Displen = 7
+DispStrP( )
+~~~
+
+###### __DispParamlP(ch,Label, Data)__  
+Arguments: __ch__ Display position, __Label__ String, __Data__ Integer. No return value.
+The text is displayed in two lines at a fixed position at the top of the screen: a label string and data (integer value).
+It is intended for use in displaying parameters, etc. The data is displayed in decimal.
+The fixed display position has 4 horizontally and 3 rows, for a total of 12 types of displays. Therefore, the value of __ch__ is 0 to 11.
+Example:
+~~~
+DispParamlP(0,"Count",count)
+count = count + 1
+~~~
+However, all 12 channels will only be displayed when __FIXParam_Display__ is set to 12. If __FIXParam_Display__ is 0, no display will occur even when the function is executed.
+
+##### __DispParamfP(ch,Label, Data)__  
+Arguments: __ch__ Display position, __Label__ String, __Data__ Floating-point number. No return value.
+
+Text is displayed in two lines at a fixed position at the top of the screen: a label string and data (decimal value).
+
+It is intended for use in displaying parameters, etc. The data is displayed in decimal format.
+
+The fixed display position has 4 horizontally and 3 horizontally, for a total of 12 display options. Therefore, the value of ch can be 0 to 11.
+
+However, all 12 channels will only be displayed when __FIXParam_Display__ is set to 12. If __FIXParam_Display__ is 0, no display will occur even when the function is executed.
+
+##### __rtn = SerialInit(ch,port,baud)__  
+Arguments: __ch__ Serial port definition number, can be specified from 0 to 9. __port__ Serial port number. If an alphabet letter (A-J) is specified instead of a number, it searches for and opens a connected serial port with the VID, PID, and serial characteristics defined in __device_config.txt__. This ensures a reliable connection to a specific device.
+You can also specify the device name defined in __device_config.txt__.
+__baud__ Bitrate. Return value: 0 for success, 1 for failure. Data length, parity, stop bits, etc. are fixed at 8, N, 1.
+Serial port initialization is performed within the Lua script.
+
+Example:
+~~~
+SerialInit(0,10,115200)
+or
+SerialInit(0,A,115200)
+or
+SerialInit(0,"Insulation_Serial_1",115200)
+~~~
+Uppercase letters or device names are linked here to the serial port definition number, and the serial port definition number will be used from now on.
+
+##### __SerialSend(ch, Buffer, len)__  
+Arguments: __ch__ The channel number when the serial port is opened; fixed at 0 in this program. __Buffer__ The string to send (can be output in binary format without problems). __len__ The number of characters. This is a function for sending data via the serial port.
+
+Example:
+~~~
+Send = string.format("%x \n",Count)
+SerialSend(0,Send,string.len(Send))
+~~~
 
 
-rtn = SerialInit(ch,port,baud)
+##### __rtn = SerialWaitRecv(ch,Timeout)__
+Arguments: __ch__ The channel number when the serial port was opened; fixed at 0 in this program.
+__Timeout__ Waits for reception for the specified integer number of seconds.
+Return value: 0 for reception, 1 for timeout
+This function simply waits for a reception event and pauses processing; to find out what was received, you must call the SerialRecv() function separately.
 
- 引数:ch シリアルポート定義番号、0から9まで指定可能。
-　　　port シリアルポートの番号、これに数字以外のA～Jまでのアルファベットを
-　　指定した場合、device_config.txtで定義したVID,PID,シリアルの特徴を持つ接続済み
-　　シリアルポートを探し、Openします。これで特定機器への確実な接続が期待できます。
-　　　device_config.txtで定義したデバイス名で指定することもできます。
-　　  baud ビットレート 戻り値 0で成功、1で失敗。データ長、パリティ、ストップビット
-　　などは8,N,1固定となります。
-　  シリアルポートの初期化はLuaスクリプト内でおこないます。
-　例：
-	SerialInit(0,10,115200)
-  or
-	SerialInit(0,A,115200)
-  or
-	SerialInit(0,"Insulation_Serial_1",115200)
+##### __len,Buf = SerialRecv(ch,Buf)__
+Arguments: __ch__ The channel number when the serial port was opened; fixed at 0 in this program.
+__Buf__ Received string (even if it has content, it will be overwritten by the received string)
+__len__ Number of characters received
+This is a function for serial port reception.
 
-　アルファベット大文字、あるいはデバイス名はシリアルポート定義番号とここで紐づけられ
-　以降はシリアルポート定義番号を使っていきます。
+Example:
+~~~
+len,Buf = SerialRecv(0,Buf)
+if(len > 0) then
+~~~
 
+##### __Buf,len = SerialRecv2(ch)__
+Argument: __ch__ Serial port definition number, can be specified from 0 to 9. This is specified during SerialInit.
+__Buf__ Received string (defined here as a Lua string) __len__ Number of characters to receive
+Example:
+~~~
+Buf,len = SerialRecv(0)
+~~~
+Buf is generated within the function and garbage collected after use.
+Generally, the use of SerialRecv2 is recommended.
 
-SerialSend(ch, Buffer, len)
- 引数:ch シリアルポートを開いたときのch番号、このプログラムでは0固定
-        Buffer 送信文字列(バイナリでも問題なく出力できます) len 文字数
-        シリアルポート送信のための関数です。
-　例：
-	Send = string.format("%x \n",Count)
-	SerialSend(0,Send,string.len(Send))
+##### __rtn = HIDSend(ch,Buf,len)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the instrument name.  
+__Buffer__ Transmission string __len__ Number of characters   __Buffer__ can transmit binary data including zeros.
 
-rtn = SerialWaitRecv(ch,Timeout)
- 引数:ch シリアルポートを開いたときのch番号、このプログラムでは0固定
-        Timeout ここに指定した整数秒、受信を待つ。
-        戻り値: 0で受信、1でタイムアウト
-　　この関数は受信イベントをただ待つ、処理を止めておくためだけの関数であり、
-　　どんなものを受信したかは、別途SerialRecv()関数を呼び出さなくてはならない。
+##### __rtn = HIDSendS(ch,Buf)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the instrument name.  
+__Buffer__ Transmission string This can be used if the transmission string does not contain zeros.
 
-len,Buf = SerialRecv(ch,Buf)
- 引数:ch シリアルポートを開いたときのch番号、このプログラムでは0固定
-        Buf 受信文字列(中身があっても受信文字列で上書きされます) len 受信文字数
-        シリアルポート受信のための関数です。
-　例：
-	len,Buf = SerialRecv(0,Buf)
-	if(len > 0) then
+##### __rtn = HIDSendS3(ch,Buf)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the instrument name.  
+__Buffer__ Transmission string This can be used if the transmission string does not contain zeros.
 
-Buf,len = SerialRecv2(ch)
- 引数:ch シリアルポート定義番号、0から9まで指定可能。SerialInit時に指定したものです。
-        Buf 受信文字列(luaストリングでここで定義されます) len 受信文字数
-　例：
-	Buf,len = SerialRecv(0)
-　Bufは関数内で生成されて使用後にガベージコレクションされます。
-　基本的にSerialRecv2の使用を推奨する。
+##### __len,Buf = HIDRecv(ch,Buffer,len)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the instrument name.  
+__Buffer__ Received string __len__ Number of characters __Buffer__ can receive binary data including 0
 
-rtn = HIDSend(ch,Buf,len)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 送信文字列 len 文字数　Bufferは0を含むバイナリを送信可能である
+##### __len,Buf = HIDRecv2(ch,Buffer,len)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the device name.  
+__Buffer__ Received string __len__ Number of characters __Buffer__ can receive binary data including 0
 
-rtn = HIDSendS(ch,Buf)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 送信文字列 送信文字列が途中に0を含まない文字列の場合これが使える
+##### __len,Buf = HIDRecv3(ch,Buffer,len)__
+Argument: __ch__ Can be specified in the MDEV instrument definition. However, since it is difficult to specify this directly, it is recommended to specify it by the device name.  
+__Buffer__ Received string __len__ Number of characters __Buffer__ can receive binary data including 0
 
-rtn = HIDSendS3(ch,Buf)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 送信文字列 送信文字列が途中に0を含まない文字列の場合これが使える
+##### __rtn = NetInitCheck(ch)__
+Argument: __ch__ LAN connection instrument definition, can be specified from 0 to 4. Can also be specified by the device name.  
+Return Value: 1 for initialized, 0 for uninitialized
 
-len,Buf = HIDRecv(ch,Buffer,len)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 受信文字列 len 文字数　Bufferは0を含むバイナリを受信可能である
+##### __rtn = NetConnect(ch)__
+Argument: __ch__ LAN connection instrument definition, can be specified from 0 to 4. Can also be specified by device name.  
+Return Value: 1 for connected, 0 for not connected
 
-len,Buf = HIDRecv2(ch,Buffer,len)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 受信文字列 len 文字数　Bufferは0を含むバイナリを受信可能である
+##### __rtn = NetDisConnect(ch)__
+Argument: __ch__ LAN connection instrument definition, can be specified from 0 to 4. Can also be specified by device name.  
+Return Value: Always 0
 
-len,Buf = HIDRecv3(ch,Buffer,len)
- 引数:ch MDEV計測器定義で指定可能。ただこれを直接指定するのは難しいため
-　　　　機器名で指定することを推奨する。
-        Buffer 受信文字列 len 文字数　Bufferは0を含むバイナリを受信可能である
+##### __rtn = NetSend(ch,Buf,len)__
+Argument: __ch__ LAN connection instrument definition, can be specified from 0 to 4. Can also be specified by device name.  
+__Buf__ String to send  
+__lan__ Number of characters to send  
+Return Value: 1 for successful transmission, 0 for transmission failure  
 
-rtn = NetInitCheck(ch)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
- 戻り値:1で初期化済み、0:で未初期化
+##### __rtn = NetWaitRecv(ch,timeout)__
+Argument: __ch__ LAN connection instrument definition  
+The value can be specified from 0 to 4. It can also be specified by the device name.    
+__timeout__ Waiting for reception Waits for __timeout__ seconds or until data is received  
+Return value: 1 for timeout, 0 for reception  
 
-rtn = NetConnect(ch)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
- 戻り値:1で接続済み、0:で未接続
+##### __len,Buf = NetRecv(ch,Buf)__  
+Argument: __ch__ LAN connection instrument definition, can be specified from 0 to 4. It can also be specified by the device name.
+__Buf__ Received string
+Return value __len__: Number of characters received, __Buf__: Received string
 
-rtn = NetDisConnect(ch)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
- 戻り値:常に0
+##### __Sleep(wait)__
+Argument: __wait__ Pauses processing and waits for the specified integer number of seconds.
+Example:
+~~~
+Sleep(10)
+~~~
+<br>
 
-rtn = NetSend(ch,Buf,len)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
-      Buf 送信文字列 lan 送信文字数
- 戻り値:1で送信成功、0:で送信失敗
+##### __uSleep(wait)__
+Argument: __wait__ Pauses processing and waits for the specified integer number of microseconds.
+Example:
+~~~
+uSleep(10)
+~~~
 
-rtn = NetWaitRecv(ch,timeout)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
-      timeout 受信待ち timeout秒またはデータ受信まで待つ
- 戻り値:1でタイムアウト、0で受信
+<br>
 
-len,Buf = NetRecv(ch,Buf)
- 引数:ch LAN接続計測器定義、0から4で指定可能。機器名でも指定できます。
-      Buf 受信文字列 
- 戻り値 len:受信文字数、Buf:受信文字列
+##### __mSleep(wait)__
+Argument: __wait__ Pauses processing and waits for the specified integer millisecond.
 
-Sleep(wait)
- 引数:wait 指定整数秒処理を停止して待機する。
-　例：
-	Sleep(10)
+Example:
+~~~
+mSleep(10)
+~~~
 
-uSleep(wait)
- 引数:wait 指定整数マイクロ秒処理を停止して待機する。
-　例：
-	uSleep(10)
+<br>
 
-mSleep(wait)
- 引数:wait 指定整数ミリ秒処理を停止して待機する。
-　例：
-	mSleep(10)
+##### __Data = RegRead(RID,addr)__
+Argument: __RID__ Region type __addr__ Register address Return value: Value in the register
+This function accesses registers defined in the configuration file __Reg.txt__.  
+Example:  
+~~~
+Send = string.char(MID,RegRead(0,ADDR),0,0,0,0,0,0,0,0,0,0,0)
+~~~
+This example directly generates a telemetry string.
+The region type can be specified by its position in the order of region type definition (starting from 0), or by the region __REGION__ element name string.
 
-Data = RegRead(RID,addr)
- 引数:RID 領域種別 addr レジスタアドレス 戻り値：レジスタ中の値
- 設定ファイルReg.txtで定義されたレジスタをアクセスするための関数です。
-　例：
-	Send = string.char(MID,RegRead(0,ADDR),0,0,0,0,0,0,0,0,0,0,0)
-　　この例では直接テレメトリ文字列を生成している。
-　領域種別は領域種別定義順に0から並べた位置、または領域REGION要素名の
-文字列で指定することができます。
-    Data = RegRead("MAIN_MEM",Addr)
-　引数addrは数字しか指定できません。アドレスを文字列でアクセスするなら、
-Luaのテーブルを使用してください。
-  例：
+##### __Data = RegRead("MAIN_MEM",Addr)__
+The argument __addr__ can only be a number. If you want to access the address as a string, use a Lua table.
+Example:
+~~~
 DefAddr ={
-	"CONTROL_REG" = 0x0100
-	"STATUS_REG"  = 0x0104
+"CONTROL_REG" = 0x0100
+"STATUS_REG" = 0x0104
 }
-    Data = RegRead("REG_AREA","STATUS_REG")
+Data = RegRead("REG_AREA","STATUS_REG")
+~~~
+
+<br>
+
+##### __RegWrite(RID,addr,Data)__
+Arguments: __RID__ Area type __addr__ Register address __Data__ Value to write to the register
+This function accesses registers defined in the configuration file __Reg.txt__.  
+Example:  
+~~~
+RegWrite(0,RADDR,string.byte(Buf,4,4))
+~~~
+The value to be written is directly extracted from the command string.  
+The region type can be specified by the position in the order of region type definition (starting from 0) or by the region REGION element name string.
+
+<br>
+
+##### __RegWrite("MAIN_MEM",Addr,Data)__
+The argument __addr__ can only be a number. If you want to access the address as a string, use a Lua table.  
+
+<br>
+
+##### __CRC = CRC16(BUF,len)__
+Argument: Command/Telemetry Buffer. The last 2 bytes (len-2) are set to 0 before the CRC is inserted.  
+Return value: __CRC__ unsigned short value  
+For PCDU 8byte commands, len=8; for telemetry, len=385.   
+
+<br>
+
+##### __mkframe()__
+Generates a fixed-length format telemetry binary.  
+Arguments:  
+- 1 String buffer for storing telemetry binary.  
+- 2 Buffer size  
+- 3 Lua table containing telemetry values
+- Return value: String buffer for storing telemetry binary. Argument 1 itself.
+The format is defined in the telemetry definition file defined in config.txt. If the definition name is not found, it searches for tlm.txt.
+
+##### __rtn = DeviceSeq("device name","sequence name",param...)__
+Arguments:
+- "device name": Device name defined in device_config.txt
+- "sequence name": Sequence name defined in the configuration pattern file defined in device_config.txt.
+- param: Sequences may take parameters; use the values ​​written here.
+- Return value: 0: Failure, 1: Success
+Example:
+~~~
+DeviceSeq("SPE6102_1","SETV",param1)
+~~~
+
+<br>
+
+##### __KeyWait()__
+Pauses Lua execution and waits for a specific key input (return).
+- Arguments: None
+- Return value: None
+The program calls and executes a Loop function in Lua every time a timer event occurs; this function stops that.
+
+##### __SetC("variable name",flg,Value)__
+Sets a value to a variable registered in the LM class.
+Argument 1: Variable name
+Argument 2: Type
+Argument 3: Value
+This passes the value from the Lua script to C++.
+The variable name is defined in the register definition file after the DEF keyword.
+Type: 0 Integer
+Argument 1: Floating-point number
+
+##### __Value = GetC("variable name",flg)__
+Retrieves a value from a variable registered in the LM class.
+Argument 1: Variable name
+Argument 2: Type
+The variable name is defined in the register definition file after the DEF keyword.
+Argument 0 Integer
+Argument 1: Floating-point number
+Return value: Number; whether it's an integer or floating-point number is determined by argument 2.
+
+::
+B: The operation of the following function is hardcoded.
+__function Startup()__
+No arguments, no return value
+Called only once when the program starts. Think of it as the same as the Arduino version.
+
+__function Loop()__
+This function is called at intervals of the milliseconds specified in __Interval__ in Config.txt (initial value is 1000).
+Consider it the same as the Arduino function.
+::
+### 8.4: About Register Definition Files
+
+The register definition file format allows you to specify the register type name after REGION_MAIN.
+
+Example: __REGION REG {__
+
+The __REGION__ element can be named, and its contents are written within {}.
+
+The __REGION__ element can be accessed by number starting from 0 in the order of its definition as a region type.
+
+The __REGION__ element has a memory space from the specified start address __START__ to the end address __END__. Its contents can be accessed in 16-bit units per word using address specification.
+
+Access to the specified address is performed normally as long as it is between the start and end addresses.
+
+The memory space is initialized to 0.
+
+The __RegRead()__ and __RegWrite()__ functions allow access to these registers by specifying the region type and address.
+
+For example, if you wanted to create an image capture trigger command, you could define a custom register in the register definition file and write to it to trigger the image capture.
+
+You could write a Lua script that monitors this custom register every second and executes when a value is written to it.
+
+### 8.5: About the Attached Sample Program
+
+The attached Lua script __script.lua__ simulates the operation of a typical serial device.
+
+First, the __Startup()__ function sets the initial values ​​of the registers. If the serial port initialization is successful, "__Init OK__" will be displayed on the screen.
+
+The __Loop()__ function accepts input from the serial port, interprets it as a command, and returns telemetry if the read register is set. It also writes values ​​to the registers according to the command.
+
+## 9: Display
+
+The program displays data in a fixed screen size, divided into three sections.
+
+The top section can have up to four fixed parameter display sections horizontally and up to three vertically. These sections can be defined and displayed using Lua scripts, and can display parameter labels, integer values, and floating-point numbers.
+
+The number of display sections here can be changed using the __FIXParam_Display__ parameter in config.txt.
+
+The middle section displays received data, and the display can be switched between hexadecimal and text display in config.txt. This cannot be changed while the program is running. Lua scripts can freely display text. If you want to display in hexadecimal using Lua, you must process the output in the program.
+
+In hexadecimal display, ASCII characters are also displayed on the right edge. Characters that cannot be converted to ASCII are replaced with *.
+
+The bottom six lines are the transmitted data display section, displayed in hexadecimal.
 
 
-RegWrite(RID,addr,Data)
- 引数:RID 領域種別 addr レジスタアドレス Data レジスタに書き込む値
- 設定ファイルReg.txtで定義されたレジスタをアクセスするための関数です。
-　例：
-	RegWrite(0,RADDR,string.byte(Buf,4,4))
-      コマンド文字列から書き込む値を直接取り出して書いている
-　領域種別は領域種別定義順に0から並べた位置、または領域REGION要素名の
-文字列で指定することができます。
-    RegWrite("MAIN_MEM",Addr,Data)
-　引数addrは数字しか指定できません。アドレスを文字列でアクセスするなら、
-Luaのテーブルを使用してください。
+## 10: Post-Startup Settings
 
-CRC = CRC16(BUF,len)
-  引数：コマンド/テレメトリバッファ 後ろ2バイト(len-2)は0にされた上でCRCが挿入される
-　戻り値:CRC unsigned short値
-  PCDU 8byteコマンドならlen=8、テレメトリならlen=385。
+Port and baud rate settings can be changed after startup. If the port defined in Config.txt does not exist, the program will start with a dialog box indicating that the port could not be opened. The port will be displayed as COMX, indicating that the port is not connected.
 
-mkframe()
-　引数:1 テレメトリバイナリ格納用の文字列バッファ。 
-      :2 バッファサイズ
-      :3 テレメトリ値を持っているLuaテーブル
-  戻り値: テレメトリバイナリ格納用の文字列バッファ。引数1そのもの
-　固定長フォーマットのテレメトリバイナリを生成する。フォーマットはconfig.txtで定義した
-テレメトリ定義ファイルで定義する。定義名が無い場合はtlm.txtを探す。
+If other connectable ports exist, clicking COMX will display a dropdown menu of selectable ports, allowing you to choose one.
 
+Even if a port such as COM3 is already connected, clicking it will display a list of selectable ports, allowing you to select or change them.
 
-rtn = DeviceSeq("デバイス名","シーケンス名",param...)
-　引数:"デバイス名":device_config.txtで定義したデバイス名称
-       "シーケンス名":device_config.txtで定義した設定パターンファイルで定義された
-　　　　シーケンス名称。
-　　　 param:シーケンスはパラメーターを取ることがあり、ここに書いた値を使用する
-　戻り値:0:失敗 1:成功
-例:
- DeviceSeq("SPE6102_1","SETV",param1)
+You can change the baud rate by opening the dialog box from "Baud...".
 
-KeyWait()
-　引数:無し
-　戻り値:無し
- Lua実行を一時停止し、特定のキー入力(リターン）待ち状態にする
- 本体タイマーイベントで毎回Lua内のLoop関数を呼び出して実行しているが、これを停止する。
+## 11: Receiving
+The program attempts to open the serial port set at startup. If it cannot be opened, a message will be displayed. The program will start but will not function, so terminate it and perform the correct settings.
 
-SetC("変数名",flg,Value)
- LMクラスに登録した変数に値をセットする
- 引数1:変数名 2:種別 3:値
- これでLuaスクリプト内からC++に値を渡す
- 変数名はレジスタ定義ファイル内にDEFキーワードの後ろに書いて定義する
- 種別:0 整数 1:浮動小数点数
+If the program starts without an error message, the port is already open and in receiving mode. The port cannot be closed while the program is running.
 
+In short, if configured correctly, it is almost operation-free.
 
-Value = GetC("変数名",flg)
- LMクラスに登録した変数から値を取り出す
- 引数1:変数名 2:種別
- 変数名はレジスタ定義ファイル内にDEFキーワードの後ろに書いて定義する
- 種別:0 整数 1:浮動小数点数
-　戻り値:数値、整数か浮動小数点数かは引数:2で決める
+## 12: Sending
 
+This is done from "CMD..." in the program's menu bar. A dialog window will open. In the two edit boxes, enter the target board's I/O address and the data you want to write during the write operation, respectively, and then press the "WRITE" or "READ" button.
 
+This operation requires support from the target board's software.
 
-B:以下の関数の動作が決め打ちされています
-function Startup()
- 引数無し、戻り値無し
- プログラム起動時に一度だけ呼び出されます。Arduinoのものと同じだと思って
-ください。
+The expected operation of the target board is to write the specified data to the specified address, or to read one byte of data from the specified address and send it back to bincom via the serial port.
 
-function Loop()
- Config.txtのInterval に指定したミリ秒(初期値は 1000)の間隔を置いて
-呼び出します。
-　Arduinoのものと同じだと思ってください。
+The transmitted command is 4 bytes, and the command format is as follows:
 
-### 8.4:レジスタ定義ファイルについて
+Position (bytes) Meaning Value
+- 0 Command Type Operation type indication 0=Write 1=Read
+- 1 Address Target board I/O address indication
+- 2 Data During write operation
 
-　レジスタ定義ファイルのフォーマットですが、REGION_MAIN に続いてレジスタ種別名
-を指定できます。
+Write Data Instruction
+- 3 Command End Always 0x00
 
-例: REGION REG {
+When "Read" is specified as the command type, the second byte of data instruction is ignored.
 
-　REGION要素には名前を付けることができ、その内容は{}の中に記述されます。
-  REGION要素は領域種別として定義順に0から番号でアクセスが可能です。
-　REGION要素は指定開始アドレスSTARTから終了アドレスDNDまでのメモリ空間を
-持ちます。この内容にはアドレス指定で内容に1ワード16bit単位でアクセスできます。
- 開始アドレスと終了アドレスの間であれば指定アドレスへのアクセスは正常に
-おこなわれます。
-　メモリ空間は0で初期化されます。
+Values ​​written to the edit box are interpreted as hexadecimal strings if prefixed with "0x" and as binary strings if prefixed with "0b". A string of half-width digits is treated as decimal.
 
-RegRead()関数やRegWrite()関数では、リージョン領域種別とアドレスを指定する
-ことでこれらレジスタにアクセス可能です。
+If other characters such as letters are included, the default data definition will be used for transmission.
 
-　例えば撮像トリガコマンドを作りたかったら、レジスタ定義ファイルに独自の
-レジスタを定義して、これに書き込むことで撮像トリガとする、みたいな応用が
-できるでしょう。
-　Luaスクリプトで、この独自レジスタを毎秒監視して、書き込まれたら動作する
-ようなスクリプトが書けるでしょう。
+## 13: Recording
 
+Clicking "SAVE" in the program's menu bar saves the received data to the same folder as the program binary. Simultaneously, the menu bar text changes to "NowSaving.."
 
-### 8.5：添付サンプルプログラムについて
+All data received during this time is saved to the file. Clicking "NowSaving.." ends data saving.
 
-添付のLuaスクリプト script.luaは典型的なシリアルデバイスの動作を模擬します。
+The saved file name is automatically assigned a sequential filename. The recording start time is recorded at the beginning of the file, and the recording end time is recorded at the end.
 
-まず、Startup()関数で、レジスタ初期値の設定が行われます。
-　シリアルポートの初期化が成功すると、画面にInit OKと表示されます。
+Filenames are designed to be unique.
 
-Loop()関数は、シリアルポートからの入力を受け付け、これをコマンドとして
-解釈して、リードレジスタが立っていた場合、テレメトリを返します。
-またコマンドに従ってレジスタに値を書き込みます。
+Select "CMD.." from the program's menu bar, then select "SaveSendData" at the bottom of the pull-down menu. The sent data will be saved to the fixed filename "SENDDATA.DAT" until this item is selected again.
 
+While saving is in progress, the menu item will change to "NowSaving.."
 
-## 9:表示
+## 14: License
 
-　プログラムは固定画面サイズで、3つの区画に分けて表示をおこなます。
-　一番上には、横に4つ、縦に最大3つの固定パラメータ表示区画をつくることが
-できます。ここはLuaスクリプトで定義、表示可能な区画で、パラメータのラベル、
-値の整数及び浮動小数点数表示が可能です。
-　ここの表示区画数はconfig.txtのFIXParam_Displayパラメータによって変更
-可能です。
-　真ん中は受信データ表示区画で、config.txtで表示を16進表示とテキスト表示
-を切り替えることができます。これはプログラム動作中に変更できません。また
-Luaスクリプトは自由にテキスト表示をおこなえます。Luaで16進表示を行いたい
-ときはプログラムで出力を加工してください。
-　16進表示では右端にasciiキャラクタでの表示も同時におこないます。ascii
-キャラクタにならないものは*で置換されます。
-　一番下6行は送信データ表示区画で、16進表示されます。
+This program is licensed under the MIT License.
 
+## 15: Compilation
 
-## 10:起動後設定
+The program is compiled using Visual Studio 2022 C++ x64 Release.
 
-　起動後にポート及びボーレートの設定が変更可能です。
-　もしConfig.txtで定義されたportが存在しなかった場合、Portを開けなかった旨の
-ダイアログを表示して起動します。PortはCOMXと表示されPort接続していない状態
-です。
-　もし他に接続可能なPortがある場合、COMXをクリックすると選択可能なportが
-プルダウンで表示され、選ぶことが出来ます。
-　また、COM3など既に接続している場合でも、これをクリックすると選択可能なportの
-リストが現れ、選択、変更が可能となります。
-　"Baud..."からダイアログを開いて、ボーレートの変更が可能です。
+When compiling from the attached source code, first compile the Lua source code to create the __LibLua.lib__ file. Extract the Lua source code into the lua folder created in the attached source folder.
 
-## 11:受信
-　プログラムは起動時に設定されたシリアルポートを開こうとします。開けない場合は
-メッセージを出します。プログラムは起動しますが、動作しませんので、終了して、
-正しい設定を行ってください。
-　エラーメッセージ無しでプログラムが起動した場合、既にポートは開かれ受信状態に
-あります。プログラム起動中にポートを閉じることはできません。
-　要するに、正しく設定されていればほぼオペレーションフリーです。
+The Lua source code can be downloaded from https://www.lua.org/download.html.
 
+Building this program requires the installation of __libUSB__ and its libraries.
 
-## 12:送信
+Please copy __libusb.h__ and __libusb-1.0.lib__ to the same folder as this source code before building the project.
 
-　これはプログラムのメニューバの"CMD.."から行います。ダイアログウィンドウが
-開かれ、そこに二つのエディットボックスに、それぞれターゲットボードのI/O
-アドレスと、Write動作の際に書き込みたいデータを書き込み、"WRITE"もしくは
-"READ"ボタンを押します。
+## 16: Known Issues
+Currently, no issues have been reported. If you notice any issues, please contact us at the address below.
 
-　この正常な動作にはターゲットボード側ソフトウェアの対応が必要です。
-　ターゲットボードに期待される動作は、指定したアドレスに指定したデータを書き
-込む、または指定したアドレスのデータを1バイト読んで、シリアルポート経由で
-bincomに送り返す、というものです。
-
-　送信されるコマンドは4バイト、コマンドフォーマットは以下の通りです
-
-位置(バイト) 意味			値
-0		コマンドタイプ	動作タイプ指示　0=Write 1=Read
-1		アドレス		ターゲットボードのI/Oアドレス指示
-2		データ			Write動作時の書き込みデータ指示
-3		コマンドエンド	常に0x00
-
-　コマンドタイプに Readを指定した場合、2バイト目のデータ指示は無視されます。
-
-　エディットボックスに書き込む値は、頭に"0x"と付けると16進文字列と、"0b"とつく
-と2進文字列として解釈します。半角数字列だけだと10進とみなします。
-　もし他のアルファベットなどが混入した場合、送信データはデフォルト定義のものが
-使用されます。
-
-
-## 13:記録
-
-　プログラムのメニューバの"SAVE"をクリックすると受信データが、プログラムバイ
-ナリと同じフォルダに保存されます。同時にメニューバー文字列は"NowSaving.."と
-変化します。
-　この間に受信したデータはすべてファイルに保存されます。"NowSaving.."の文字列
-をクリックすると、データ保存は終了します。
-　保存ファイルのファイル名には自動的に、連番のファイル名が振られます。ファイル
-先頭には記録開始時間が、末尾には記録終了時間が記録されます。
-　ファイル名は重複しないようになっています。
-
-　プログラムのメニューバーの"CMD.."を選択し、プルダウンメニューの下部、
-"SaveSendData"を選択すると、以降再びこの項目を選択するまで送信データが固定ファ
-イル名"SENDDATA.DAT"に保存されます。
-　保存中はメニューの項目は"NowSaving.."に変化します。
-
-
-## Licence
-## 14:ライセンスについて
-　適用されるライセンスはありません。
-　配布の際には、2:に示した構成で行ってください。
-　改変の際は、程度に応じて著作権者表記を変更してください。
-
-## 15:コンパイル
-
-　プログラムはVisual Studio 2022 C++で、x64 Releaseコンパイルされています。
-　添付ソースからコンパイルする際は、まずLuaソースコードからコンパイルし、
-LibLua.libファイルを作成してください。Luaソースコードは添付ソースのフォルダに
-作成したluaフォルダに展開してください。
-　luaソースコードはhttps://www.lua.org/download.htmlからダウンロードしてください。
-  本プログラムのビルドにはlibUSBのインストールとそのライブラリが必要です。libusb.hと
-libusb-1.0.libを本ソースと同じフォルダにコピーしてから、プロジェクトをビルド
-してください。
-
-## 16:既知の不具合
-　現在は特に報告されていません。お気づきの箇所がありましたら、
-以下の連絡先までご連絡ください。
-
-## Author 
-## 17:著作権者及び連絡先
-Mizuki Tohru
-[twitter](https://twitter.com/mizuki_tohru)
-
+## 17: Copyright Holder and Contact Information
+Toru Mizuki | t_mizuki@aes.co.jp

@@ -4,7 +4,7 @@
 //
 
 #pragma once
-
+#define TEST 0
 #include "targetver.h"
 
 #define WIN32_LEAN_AND_MEAN             // Windows ヘッダーから使用されていない部分を除外します。
@@ -20,8 +20,10 @@
 #include <stdio.h>
 #include <time.h>
 #include <io.h>
+#if (TEST == 0)
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#endif
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -44,7 +46,10 @@
 #include <devguid.h>  // GUID_DEVINTERFACE_COMPORT
 #include <cfgmgr32.h>
 #include <crtdbg.h>
+#if (TEST == 1)
+#else
 #include <Ws2def.h>
+#endif
 #include <winsock.h>
 #include <wingdi.h>
 #include <cstdio>
@@ -69,7 +74,10 @@
 #pragma comment(lib, "wininet.lib")
 #pragma comment(lib, "Ws2_32.lib")
 
-#define COMMBUFSIZE 131072
+//#define COMMBUFSIZE 131072
+//#define COMMBUFMAX  131071
+#define COMMBUFSIZE 65536
+#define COMMBUFMAX  65535
 #define BUF_SIZE	2048*4
 #define POLY 0x8408
 #define TLMDATA_NUM 256
@@ -298,10 +306,13 @@ public:
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 		addr.sin_port		 = htons((u_short)port);
 		memset(addr.sin_zero,(int)0,sizeof(addr.sin_zero));
+#if (TEST == 1)
+#else
 		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == (int)SOCKET_ERROR){
 			perror("bind");
 			exit(1);
 		}
+#endif
 		listen(sc,MAX_CLIENTS+1);
 	};
 	~Socket(){
@@ -330,10 +341,13 @@ public:
 		addr.sin_addr.s_addr = htonl(INADDR_ANY);
 		addr.sin_port		 = htons((u_short)port);
 		memset(addr.sin_zero,(int)0,sizeof(addr.sin_zero));
+#if (TEST == 1)
+#else
 		if(bind(sc,(sockaddr*)&addr,sizeof(sockaddr_in)) == (int)SOCKET_ERROR){
 			perror("bind");
 			exit(1);
 		}
+#endif
 		listen(sc,MAX_CLIENTS+1);
 	}
 //	void init_client(const u_short port,char * IP_Address){
@@ -497,6 +511,8 @@ extern int Interval;
 extern ulabel LM;	/*変数ラベル格納クラス*/
 extern unsigned int WSIZE_WIDTH;
 extern unsigned int	WSIZE_HEIGHT;
+extern std::vector<unsigned char> localBuf;
+extern std::vector<unsigned char> localBuf2;
 
 extern OVERLAPPED	COMOverlapped[5];
 extern HANDLE		hEventObject[5];
@@ -512,7 +528,9 @@ extern unsigned long RtnN;
 extern unsigned long FstN;
 extern unsigned long sRtnN;
 extern unsigned long sFstN;
-
+#if (TEST == 1)
+extern long TESTDBG[10];
+#endif
 unsigned short CRC_CCITT_LSBfirst_ALL1(unsigned short, unsigned char []);
 
 DWORD  WINAPI ThreadFunc(LPVOID);
